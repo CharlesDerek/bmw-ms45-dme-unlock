@@ -1,0 +1,147 @@
+
+#####################################################################################################
+ Breakdown of abbreviations and their meaning for parameters in the bin file and xdf file for ms45.1:
+#####################################################################################################
+
+
+_abc_= anti bounce counter 
+_ac_= acceleration 
+_acc_= air conditioning compressor _accin_= aircon compressor request _accout_= aircon compressor deactivation _acin_= aircon activated 
+_ad_= criteria for adaption 
+_add_= lambda adaption additive _adh_= adhesion detection 
+_afl_= air/fuel-ratio lean 
+_afr_= air/fuel-ratio rich 
+_aj_= anti-jerk 
+_amp_= ambient pressure 
+_amt_= automatic transmission _as_= application system 
+_ast_= after start 
+_at_= automatic transmission _av_= actual-value 
+_bat_= battery ampere 
+_bls_= brake light switch 
+_cast_= cold, after start 
+_cdn_= condition 
+_ch_= catalyst heating-condition _cha_bat_= battery charging current _conf_= configuration 
+_cop_= catalyst overheating protection _cor_= correction 
+_cps_= evap system 
+_cppwm_= pwm control of evap solenoid _cr_= ?clutch released? 
+_crlc_= correlation constant 
+_cru_= cruise control 
+_cs_= clutch switch 
+_cst_= cold start 
+_ctl_= control/intervention 
+_ctr_= counter 
+_cyctr_= cycle-counter 
+_deacc_= deacceleration 
+_dec_= decrease 
+_dhp_= dashpot 
+_diag_= diagnose 
+_dif_= difference/differential _dly_= delay  
+_dmtl_= diagnose module tank leakage _dri_= check for AT at Drive or Reverse _dy_= dynamic 
+_dyw_= window for limited dynamic 
+_ecf_= engine cooling fan 
+_ect_= engine coolant thermostat _ef_= e xhaust flap 
+_egr_= exhaust gas recirculation _eoi_= end of injection
+_er_= engine roughness calculation 
+_fac_= lambda adaption multiplicative  _fco_= fuel consumption 
+_fil_= filtered/normalized 
+_fl_= full-load 
+_frq_= frequency 
+_ftl_= fuel tank level 
+_fuc_= checking conditions of filler cap (removal) 
+_gear_= gear 
+_grd_= gradient (fade out duration) 
+_gp_= gear protection 
+_gs_= gear shift 
+_h_= higher as 
+_hys_= hysteresis 
+_icl*_= instrument cluster 
+_iga_= °ignition advance 
+_iga_optm_=optimal ignition map 
+_igab_= °basic ignition map 
+_igcfb_= °ignition current feedback 
+_igk_= ignition key 
+_inc_= increase 
+_inf_= intercept function 
+_is_= idle-speed/partial load 
+_isapwm_= idle speed actuator 
+_ivvtpwm_= individual variable valve timing 
+_knk_= knock (-control) 
+_knk_1_= knock, intensity 1 
+_knk_2_= knock, intensity 2 
+_l_= lower as 
+_lam_= lambdaintegrator 
+LDP_= axis descriptor 
+_lgrd_= gradient limitation 
+_lih_= limp home 
+_lim_= limit 
+_ls_= lambdasensor 
+_ls*_up_= before-cat lambdasensor 
+_ls*_down_=post-cat lambdasensor 
+_lsh_= lambdasensor heater 
+_lshpwm_= pwm controlling of lambdasensor heater 
+_maf_= maf sensor 
+_max_= max limiter 
+_mdl_= model 
+_mis_= misfire 
+_mis_a_= misfire carb a 
+_mis_b_= misfire carb b 
+_mpl_= multiple
+-msw-= multifunction steering wheel 
+_mt_= manual transmission 
+_mtc_= motorized throttle control 
+_mtcpwm_= pwm control of throttle body 
+_mv_= mean value 
+_mmv_= moving mean value 
+_n_= engine speed 
+_nl_= knock circuit noise level 
+_pl_= part-load 
+_plaus_= plausibility 
+_puc_= overrun fuel cut 
+_°pste_= Power-Steering 
+_pvs_= acceleration pedal° 
+_r_= resistance, electrical 
+_ref_= reference 
+_refu_= refueling 
+_rep_= repeated 
+_rest_= restart-condition 
+_ris_= restart fuel-feed at idlespeed 
+_rly_= relay 
+_rpl_= smooth acceleration (restart fuel-feed at partload) 
+_saf_= secondary airflow  
+_sap_= secondary air pump 
+_sav_= secondary air valve 
+_soi_= start of injection 
+_sp_= set-point 
+_ssc_= single cylinder fuel-cut 
+_ssg_= SMG gearbox 
+_sub_= substitute 
+_sum_= switch after x jumps 
+_supp_= supress 
+_swi_= switch 
+_tam_= temperature ambient 
+_tco_1= coolant temperature, cold engine 
+_tco_2= coolant temperature, warm engine 
+_td_= ignition-coil dwell time 
+_teg_= temperature exhaust gas 
+_thd_= threshold 
+_tia_= temperature intake 
+_tib_= injection time, basic 
+_tipr_= pre injection time 
+_tmag_= substitute for toil 
+_toil_= temperature oil 
+_tout_= time-out 
+_tps_= throttle position sensor 
+_tq_= torque 
+_tqd_= torque, drag 
+_tqfr_= torque, friction 
+_tqi_= torque, indexed/indicated 
+_tqr_= torque reduction due to intervention
+_tra_= transient correction [strong acceleration (instationary) 
+_vb_= voltage battery 
+_vim_= Disa 
+_vo_= valve overlap 
+_vol_= intake manifold volume 
+_vs_= vehicle speed 
+_vls_= voltage lambdasensor 
+_wf_= weighing factor 
+_wu_= warm-up
