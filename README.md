@@ -1,7 +1,9 @@
 
 ![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
 
-#M3 ECU Modification tool
+# M3, MS45, MSS54 Flasher
+Tool to read and flash the MS45 DME. Can read/write full and partial binaries from the MS45.0 and MS45.1. It will automatically correct checksums and sign files that are flashed to the DME.
+
 
 Due to BMW e46 models such as the M3 having much difficulty in modifications, I got tired of using 3rd party software that cost money for each ecu flash.
 
@@ -26,10 +28,6 @@ I've tested the application a fair bit, and it's fairly reliable. Very rarely th
 Usual disclaimers apply. The app can render your DME unbootable, flashing bad data might cause your car to behave unpredictably, etc. I'm not responsible for anything that happens either directly or indirectly as a result of this application.
 
 Without further ado:
-
-# MS45, MSS54 Flasher
-Tool to read and flash the MS45 DME. Can read/write full and partial binaries from the MS45.0 and MS45.1. It will automatically correct checksums and sign files that are flashed to the DME.
-
 
 ### Prerequisites
 This application uses .Net Framework 4.5.2, and was developed in C#.
