@@ -1,5 +1,9 @@
 
-Due to BMW newer models (2004+) having much difficulty in modifications,
+Due to BMW e46 models such as the M3 having much difficulty in modifications, I got tired of using 3rd party software that cost money for each ecu flash.
+If you're a person that loves performance in vehicles, improving your BMW, or just are passionate about cars and own a 3 series BMW, then you came to the right place.
+
+I personally use this software as a version control system of storing vehicles EEPROMs.
+
 The attached resources make the process easier for newer models. Below resources
 help for tuning and flashing ms54 and ms45.1 dmes BMW's.
 
@@ -15,12 +19,14 @@ Usual disclaimers apply. The app can render your DME unbootable, flashing bad da
 
 Without further ado:
 
-# MS45 Flasher
+![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
+
+# MS45, MSS54 Flasher
 Tool to read and flash the MS45 DME. Can read/write full and partial binaries from the MS45.0 and MS45.1. It will automatically correct checksums and sign files that are flashed to the DME.
 
 
 ### Prerequisites
-This application uses .Net Framework 4.5.2
+This application uses .Net Framework 4.5.2, and was developed in C#.
 
 Any INPA-compatible OBDII cable should work with this application. Make sure your cable latency is set to 1ms
 
@@ -33,7 +39,6 @@ Most of my testing has been with MS450DS0.prg, so I recommend using that.
 ### Usage
 Change the settings as necessary in the 'MS45 Flasher.exe.config' file. 
 Default port is COM1, default sgbd directory is C:\Ediabas\ECU, and default sgbd is D_Motor.GRP (should automatically resolve to MS450DS0.prg if connected to an MS45 DME)
-
 
 
 ##### Identify your DME
