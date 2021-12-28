@@ -1,8 +1,14 @@
 
-Due to BMW e46 models such as the M3 having much difficulty in modifications, I got tired of using 3rd party software that cost money for each ecu flash.
-If you're a person that loves performance in vehicles, improving your BMW, or just are passionate about cars and own a 3 series BMW, then you came to the right place.
+![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
 
-I personally use this software as a version control system of storing vehicles EEPROMs.
+Due to BMW e46 models such as the M3 having much difficulty in modifications, I got tired of using 3rd party software that cost money for each ecu flash.
+
+It can get very expensive at $500 bucks each time being flashed!
+
+If you're a person that loves performance, improving your BMW, or just are passionate about cars and own a 3 series BMW, then you came to the right place.
+
+I personally use this software as a version control system of storing vehicles EEPROMs. 
+In the case parts start going bad when they get old, and nothing exists in 20+ years from now for this series.
 
 The attached resources make the process easier for newer models. Below resources
 help for tuning and flashing ms54 and ms45.1 dmes BMW's.
@@ -18,8 +24,6 @@ I've tested the application a fair bit, and it's fairly reliable. Very rarely th
 Usual disclaimers apply. The app can render your DME unbootable, flashing bad data might cause your car to behave unpredictably, etc. I'm not responsible for anything that happens either directly or indirectly as a result of this application.
 
 Without further ado:
-
-![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
 
 # MS45, MSS54 Flasher
 Tool to read and flash the MS45 DME. Can read/write full and partial binaries from the MS45.0 and MS45.1. It will automatically correct checksums and sign files that are flashed to the DME.
