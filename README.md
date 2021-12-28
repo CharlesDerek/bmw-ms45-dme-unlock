@@ -1,6 +1,8 @@
 
 ![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
 
+#M3 ECU Modification tool
+
 Due to BMW e46 models such as the M3 having much difficulty in modifications, I got tired of using 3rd party software that cost money for each ecu flash.
 
 It can get very expensive at $500 bucks each time being flashed!
