@@ -1,3 +1,6 @@
+
+![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
+
 # BMW MS45 Flasher
 
 Rust tooling for BMW MS45.0/MS45.1 binary validation, checksum correction, signing, and flash-payload preparation.
