@@ -1,4 +1,3 @@
-
 ![Alt text](assets/M3-GTR.jpg?raw=true "M3 GTR")
 
 # BMW MS45 Flasher
