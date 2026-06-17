@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "crates/ms45-core",
+    "crates/ms45-cli",
+    "crates/ms45-gui",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "GPL-3.0-only"
+repository = "https://github.com/CharlesDerek/bmw-ms45-dme-unlock"

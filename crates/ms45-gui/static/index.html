@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MS45 Flasher</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>MS45 Flasher</h1>
+          <p>Rust binary preparation and validation for MS45.0/MS45.1 files.</p>
+        </div>
+        <span class="badge">Offline mode</span>
+      </header>
+
+      <section class="grid">
+        <form id="tune-form" class="panel">
+          <h2>Tune</h2>
+          <label>
+            Tune or full flash
+            <input name="input" type="file" required />
+          </label>
+          <label>
+            Software reference
+            <input name="sw_ref" type="text" placeholder="7561520" />
+          </label>
+          <div class="actions">
+            <button type="button" data-action="validate-tune">Validate</button>
+            <button type="submit">Prepare tune</button>
+          </div>
+        </form>
+
+        <form id="program-form" class="panel">
+          <h2>Full Program</h2>
+          <label>
+            External flash
+            <input name="external" type="file" required />
+          </label>
+          <label>
+            MPC flash
+            <input name="mpc" type="file" required />
+          </label>
+          <label>
+            Hardware reference
+            <input name="hw_ref" type="text" placeholder="0044570" />
+          </label>
+          <div class="actions">
+            <button type="button" data-action="validate-program">Validate</button>
+            <button type="submit">Prepare program</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="status-panel">
+        <h2>Status</h2>
+        <pre id="status">Ready</pre>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>
+
