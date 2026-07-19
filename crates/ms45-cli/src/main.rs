@@ -54,8 +54,8 @@ enum Command {
         user_id: [u8; 4],
         #[arg(long, value_parser = parse_hex_4)]
         serial: [u8; 4],
-        #[arg(long, value_parser = parse_hex_bytes)]
-        seed: Vec<u8>,
+        #[arg(long)]
+        seed: String,
     },
     /// Explain current status of live flashing support in this Rust port.
     LiveStatus,
@@ -129,9 +129,10 @@ fn main() -> Result<()> {
             serial,
             seed,
         } => {
+            let seed = parse_hex_bytes(&seed).map_err(|err| anyhow::anyhow!(err))?;
             println!(
                 "{}",
-                to_hex(&security_access_message(user_id, serial, &seed))
+                to_hex(&security_access_message(user_id, serial, seed.as_slice()))
             );
         }
         Command::LiveStatus => {

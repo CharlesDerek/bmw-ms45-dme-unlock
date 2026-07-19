@@ -166,6 +166,45 @@ mod tests {
     }
 
     #[test]
+    fn rejects_flash_mpc_pair_with_wrong_delta() {
+        let mut flash = vec![0; EXTERNAL_FLASH_LEN];
+        let mut mpc = vec![0; MPC_FLASH_LEN];
+        flash[0x60310..0x6031a].copy_from_slice(b"0000010400");
+        mpc[0x100..0x10a].copy_from_slice(b"0000010000");
+
+        assert!(!verify_flash_mpc_match(&flash, &mpc).unwrap());
+    }
+
+    #[test]
+    fn rejects_non_numeric_flash_mpc_metadata() {
+        let mut flash = vec![0; EXTERNAL_FLASH_LEN];
+        let mut mpc = vec![0; MPC_FLASH_LEN];
+        flash[0x60310..0x6031a].copy_from_slice(b"not-a-ref!");
+        mpc[0x100..0x10a].copy_from_slice(b"0000010000");
+
+        let err = verify_flash_mpc_match(&flash, &mpc).unwrap_err();
+        assert!(matches!(err, BinaryError::InvalidNumericMetadata));
+    }
+
+    #[test]
+    fn validates_tune_software_reference_metadata() {
+        let mut tune = vec![0; TUNE_LEN];
+        tune[0x10..0x1c].copy_from_slice(b"7561520\0\0\0\0\0");
+
+        assert!(verify_parameter_match(&tune, "BMW ZB 7561520").unwrap());
+        assert!(!verify_parameter_match(&tune, "BMW ZB 7561521").unwrap());
+    }
+
+    #[test]
+    fn validates_program_hardware_reference_metadata() {
+        let mut flash = vec![0; EXTERNAL_FLASH_LEN];
+        flash[0x6031c..0x60328].copy_from_slice(b"0044570-0000");
+
+        assert!(verify_program_match(&flash, "0044570").unwrap());
+        assert!(!verify_program_match(&flash, "0044571").unwrap());
+    }
+
+    #[test]
     fn rejects_bad_tune_length() {
         let err = prepare_tune(&[0xaa; 16]).unwrap_err();
         assert!(matches!(err, BinaryError::InvalidTuneLength { .. }));

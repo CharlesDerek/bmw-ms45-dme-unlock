@@ -1,4 +1,4 @@
-name: Rust
+name: CI
 
 on:
   push:
@@ -10,9 +10,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
 jobs:
-  test:
-    name: Test
+  rust:
+    name: Rust
     runs-on: ubuntu-latest
 
     steps:
@@ -35,3 +38,17 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --all-targets
+
+  opentofu:
+    name: OpenTofu
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+
+      - name: Validate Kubernetes module
+        run: scripts/ci/opentofu-validate.sh

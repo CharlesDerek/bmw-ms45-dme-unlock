@@ -43,6 +43,12 @@ Run lint checks:
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
+Validate the OpenTofu Kubernetes module:
+
+```bash
+scripts/ci/opentofu-validate.sh
+```
+
 ## Desktop GUI
 
 ```bash
@@ -101,6 +107,8 @@ cargo run -p ms45 -- security-message --user-id 01020304 --serial 05060708 --see
 * `crates/ms45-core`: headless binary logic and flashing backend traits.
 * `crates/ms45-cli`: command-line interface.
 * `crates/ms45-gui`: native desktop GUI and local web server.
+* `infra/opentofu`: OpenTofu Kubernetes deployment/service module for the web GUI.
+* `scripts/ci`: local scripts used by GitHub Actions.
 * `docs/rust-port.md`: porting notes and live-flashing boundary.
 
 ## Safety
