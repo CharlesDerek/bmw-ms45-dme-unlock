@@ -14,6 +14,9 @@ Implemented:
 * Offline full-program payload preparation from external flash and MPC flash files.
 * MS45 checksum correction and RSA signing.
 * Security access payload generation.
+* A fail-closed live-flash execution plan with identity pinning, overlap and
+  address validation, bounded block writes, aggregate progress, signature
+  verification, and fencing of reset after any failed operation.
 * Metadata validation for tune/software reference, program/hardware reference, and external/MPC pairing.
 * Native desktop GUI.
 * Local web-server GUI.

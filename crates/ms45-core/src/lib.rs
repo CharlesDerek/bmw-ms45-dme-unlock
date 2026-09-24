@@ -9,6 +9,7 @@ pub use binary::{
     MPC_FLASH_LEN, TUNE_LEN,
 };
 pub use flasher::{
-    DmeIdentity, FlashBackend, FlashError, FlashProgress, MemoryRegion, ReadKind, SecurityLevel,
+    DmeIdentity, FlashBackend, FlashError, FlashPlan, FlashProgress, FlashReceipt, FlashSegment,
+    MemoryRegion, ReadKind, SecurityLevel,
 };
 pub use signature::security_access_message;
