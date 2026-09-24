@@ -91,12 +91,23 @@ pub fn prepare_full_program(
 
 pub fn verify_parameter_match(flash: &[u8], sw_ref: &str) -> Result<bool, BinaryError> {
     let bin_ref = ascii_field(flash, 0x10, 0x0c)?;
-    Ok(sw_ref.contains(bin_ref.trim_end_matches('\0')))
+    let bin_ref = bin_ref.trim_matches(char::from(0)).trim();
+    if bin_ref.is_empty() || !bin_ref.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(BinaryError::InvalidNumericMetadata);
+    }
+    Ok(sw_ref
+        .split(|character: char| !character.is_ascii_digit())
+        .any(|token| token == bin_ref))
 }
 
 pub fn verify_program_match(flash: &[u8], hw_ref: &str) -> Result<bool, BinaryError> {
     let bin_ref = ascii_field(flash, 0x6031c, 0x0c)?;
-    Ok(bin_ref.contains(hw_ref))
+    let bin_ref = bin_ref.trim_matches(char::from(0)).trim();
+    let bin_base = bin_ref.split('-').next().unwrap_or_default();
+    if bin_base.is_empty() || !bin_base.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(BinaryError::InvalidNumericMetadata);
+    }
+    Ok(hw_ref == bin_base)
 }
 
 pub fn verify_flash_mpc_match(flash: &[u8], mpc: &[u8]) -> Result<bool, BinaryError> {
@@ -193,6 +204,7 @@ mod tests {
 
         assert!(verify_parameter_match(&tune, "BMW ZB 7561520").unwrap());
         assert!(!verify_parameter_match(&tune, "BMW ZB 7561521").unwrap());
+        assert!(!verify_parameter_match(&tune, "BMW ZB 17561520").unwrap());
     }
 
     #[test]
@@ -202,6 +214,22 @@ mod tests {
 
         assert!(verify_program_match(&flash, "0044570").unwrap());
         assert!(!verify_program_match(&flash, "0044571").unwrap());
+        assert!(!verify_program_match(&flash, "44570").unwrap());
+    }
+
+    #[test]
+    fn rejects_blank_and_non_numeric_reference_fields() {
+        let tune = vec![0; TUNE_LEN];
+        assert!(matches!(
+            verify_parameter_match(&tune, "anything"),
+            Err(BinaryError::InvalidNumericMetadata)
+        ));
+        let mut flash = vec![0; EXTERNAL_FLASH_LEN];
+        flash[0x6031c..0x60328].copy_from_slice(b"bad-ref-0000");
+        assert!(matches!(
+            verify_program_match(&flash, "bad"),
+            Err(BinaryError::InvalidNumericMetadata)
+        ));
     }
 
     #[test]

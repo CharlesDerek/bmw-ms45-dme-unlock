@@ -16,8 +16,11 @@ Implemented:
 * Security access payload generation.
 * A fail-closed live-flash execution plan with identity pinning, overlap and
   address validation, bounded block writes, aggregate progress, signature
-  verification, and fencing of reset after any failed operation.
+  verification, per-block readback, and fencing of reset after any failed
+  operation. The plan can also pin the expected VIN before security access.
 * Metadata validation for tune/software reference, program/hardware reference, and external/MPC pairing.
+* Exact numeric reference matching that rejects blank or malformed binary
+  metadata and avoids accepting a shorter reference embedded in a longer one.
 * Native desktop GUI.
 * Local web-server GUI.
 

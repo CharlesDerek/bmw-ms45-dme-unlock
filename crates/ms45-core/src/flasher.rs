@@ -44,6 +44,8 @@ pub enum FlashError {
     InvalidPlan(String),
     #[error("connected DME identity does not match the approved flash plan: {0}")]
     IdentityMismatch(String),
+    #[error("flash readback differs from approved payload at address {address:#x}")]
+    ReadbackMismatch { address: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +59,7 @@ pub struct FlashSegment {
 pub struct FlashPlan {
     expected_hardware_reference: String,
     expected_software_reference: Option<String>,
+    expected_vin: Option<String>,
     segments: Vec<FlashSegment>,
     block_size: usize,
     program_signature: bool,
@@ -131,10 +134,22 @@ impl FlashPlan {
         Ok(Self {
             expected_hardware_reference,
             expected_software_reference,
+            expected_vin: None,
             segments,
             block_size,
             program_signature,
         })
+    }
+
+    pub fn with_expected_vin(mut self, vin: impl Into<String>) -> Result<Self, FlashError> {
+        let vin = vin.into();
+        if vin.trim().is_empty() {
+            return Err(FlashError::InvalidPlan(
+                "expected VIN must not be blank".to_string(),
+            ));
+        }
+        self.expected_vin = Some(vin);
+        Ok(self)
     }
 
     pub fn execute(
@@ -157,6 +172,13 @@ impl FlashPlan {
                 )));
             }
         }
+        if let Some(expected) = &self.expected_vin {
+            if identity.vin != *expected {
+                return Err(FlashError::IdentityMismatch(
+                    "VIN differs from approved plan".to_string(),
+                ));
+            }
+        }
 
         backend.request_security_access(SecurityLevel::Programming)?;
         let total = self.segments.iter().map(|segment| segment.data.len()).sum();
@@ -174,6 +196,11 @@ impl FlashPlan {
                     FlashError::InvalidPlan("block address overflowed".to_string())
                 })?;
                 backend.write_block(address, block, &mut |_| {})?;
+                let readback =
+                    backend.read_memory(segment.region, address, block.len(), &mut |_| {})?;
+                if readback != block {
+                    return Err(FlashError::ReadbackMismatch { address });
+                }
                 completed += block.len();
                 progress(FlashProgress { completed, total });
             }
@@ -257,11 +284,14 @@ impl FlashBackend for UnsupportedLiveBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     #[derive(Default)]
     struct RecordingBackend {
         operations: Vec<String>,
         fail_write_at: Option<u32>,
+        corrupt_read_at: Option<u32>,
+        memory: BTreeMap<u32, u8>,
     }
 
     impl FlashBackend for RecordingBackend {
@@ -282,11 +312,18 @@ mod tests {
         fn read_memory(
             &mut self,
             _: MemoryRegion,
-            _: u32,
-            _: usize,
+            start: u32,
+            len: usize,
             _: &mut dyn FnMut(FlashProgress),
         ) -> Result<Vec<u8>, FlashError> {
-            unreachable!()
+            self.operations.push(format!("read:{start:x}:{len}"));
+            let mut data = (0..len)
+                .map(|offset| self.memory[&(start + offset as u32)])
+                .collect::<Vec<_>>();
+            if self.corrupt_read_at == Some(start) {
+                data[0] ^= 1;
+            }
+            Ok(data)
         }
         fn erase(&mut self, start: u32, len: usize) -> Result<(), FlashError> {
             self.operations.push(format!("erase:{start:x}:{len}"));
@@ -302,6 +339,9 @@ mod tests {
                 .push(format!("write:{start:x}:{}", data.len()));
             if self.fail_write_at == Some(start) {
                 return Err(FlashError::Backend("injected write failure".into()));
+            }
+            for (offset, byte) in data.iter().enumerate() {
+                self.memory.insert(start + offset as u32, *byte);
             }
             Ok(())
         }
@@ -352,8 +392,11 @@ mod tests {
                 "security",
                 "erase:1000:10",
                 "write:1000:4",
+                "read:1000:4",
                 "write:1004:4",
+                "read:1004:4",
                 "write:1008:2",
+                "read:1008:2",
                 "signature:false",
                 "reset"
             ]
@@ -417,5 +460,32 @@ mod tests {
             .operations
             .iter()
             .any(|operation| operation.starts_with("signature") || operation == "reset"));
+    }
+
+    #[test]
+    fn readback_mismatch_stops_before_next_write_and_reset() {
+        let mut backend = RecordingBackend {
+            corrupt_read_at: Some(0x1004),
+            ..Default::default()
+        };
+        assert!(matches!(
+            plan().execute(&mut backend, &mut |_| {}),
+            Err(FlashError::ReadbackMismatch { address: 0x1004 })
+        ));
+        assert!(!backend
+            .operations
+            .iter()
+            .any(|operation| operation == "write:1008:2" || operation == "reset"));
+    }
+
+    #[test]
+    fn vin_pin_stops_before_security_access() {
+        let mut backend = RecordingBackend::default();
+        let pinned = plan().with_expected_vin("DIFFERENTVIN").unwrap();
+        assert!(matches!(
+            pinned.execute(&mut backend, &mut |_| {}),
+            Err(FlashError::IdentityMismatch(_))
+        ));
+        assert_eq!(backend.operations, vec!["identify"]);
     }
 }

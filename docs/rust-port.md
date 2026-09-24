@@ -8,6 +8,10 @@ Implemented:
 - `ms45`: a CLI for offline binary validation and generating corrected flash payloads.
 - `ms45-gui`: a native desktop GUI and local web-server GUI over the same Rust core.
 - A `FlashBackend` trait that captures the live flashing boundary without tying the core binary logic to a specific transport.
+- An offline-testable `FlashPlan` that validates segment layout and connected
+  identity, then checks every written block through `read_memory` before
+  signature verification and reset. No live transport implementation is
+  provided, so this is a safety contract rather than a live flashing feature.
 
 Not implemented yet:
 
