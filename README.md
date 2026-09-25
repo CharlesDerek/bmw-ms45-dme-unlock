@@ -23,10 +23,14 @@ Implemented:
   metadata and avoids accepting a shorter reference embedded in a longer one.
 * Native desktop GUI.
 * Local web-server GUI.
+* A read-only TCP job-adapter protocol with nonce-bound responses, strict
+  identity parsing, bounded reads, and a verified backup CLI. Its simulator
+  exercises wrong variants, stale responses, short reads, and disconnects.
 
 Not implemented yet:
 
-* Live DME read/write/erase/reset from Rust.
+* Direct MS45 diagnostic job communication and physical adapter validation.
+* Live DME write/erase/reset from Rust.
 * Native Ediabas/PRG job execution.
 
 Live flashing is intentionally behind a Rust backend boundary. The original application used EdiabasLib and BMW `.prg` files for hardware communication; this Rust branch needs either a binding to an Ediabas-compatible backend or a native PRG/job implementation before it should write to an ECU.
@@ -107,6 +111,21 @@ Generate a security access message from known challenge data:
 ```bash
 cargo run -p ms45 -- security-message --user-id 01020304 --serial 05060708 --seed 090a0b0c
 ```
+
+Read a bounded region through an independently implemented read-only adapter:
+
+```bash
+cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
+  --expected-variant MS45.1 --expected-hw-ref HW1 --expected-sw-ref SW1 \
+  --expected-vin-sha256 SHA256_OF_APPROVED_VIN \
+  --region external --start 0 --length 4096 --output backup.bin
+```
+
+The command writes the file atomically, verifies its SHA-256 from disk, and
+prints a JSON receipt with the VIN hash only. The adapter wire format is
+documented in [read-only transport](docs/read-only-transport.md). This is an
+interface for a future Ediabas/PRG job bridge, not an observed hardware backup.
+No CLI command grants security access, erases, writes, or resets an ECU.
 
 ## Workspace
 

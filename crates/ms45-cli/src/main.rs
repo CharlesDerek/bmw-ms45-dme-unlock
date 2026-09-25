@@ -1,11 +1,17 @@
+use std::io::Write;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use ms45_core::flasher::MemoryRegion;
+use ms45_core::read_only::{ReadOnlyAdapter, MAX_READ};
 use ms45_core::{
     prepare_full_program, prepare_tune, security_access_message, verify_flash_mpc_match,
     verify_parameter_match, verify_program_match,
 };
+use sha2::{Digest, Sha256};
 
 #[derive(Debug, Parser)]
 #[command(name = "ms45")]
@@ -17,6 +23,27 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read memory through a separately validated read-only ECU job adapter.
+    Backup {
+        #[arg(long)]
+        adapter: SocketAddr,
+        #[arg(long)]
+        expected_variant: String,
+        #[arg(long)]
+        expected_hw_ref: String,
+        #[arg(long)]
+        expected_sw_ref: String,
+        #[arg(long)]
+        expected_vin_sha256: String,
+        #[arg(long, value_enum)]
+        region: BackupRegion,
+        #[arg(long)]
+        start: u32,
+        #[arg(long)]
+        length: usize,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Correct checksums/signature and write the parameter payload used by Flash Tune.
     PrepareTune {
         #[arg(long)]
@@ -61,10 +88,80 @@ enum Command {
     LiveStatus,
 }
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum BackupRegion {
+    External,
+    Mpc,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Backup {
+            adapter,
+            expected_variant,
+            expected_hw_ref,
+            expected_sw_ref,
+            expected_vin_sha256,
+            region,
+            start,
+            length,
+            output,
+        } => {
+            if !matches!(expected_variant.as_str(), "MS45.0" | "MS45.1") {
+                anyhow::bail!("unsupported expected variant");
+            }
+            if length == 0 || length > 0x100000 {
+                anyhow::bail!("backup length out of bounds");
+            }
+            let memory_region = match region {
+                BackupRegion::External => MemoryRegion::ExternalFlash,
+                BackupRegion::Mpc => MemoryRegion::InternalMpc,
+            };
+            let limit = match memory_region {
+                MemoryRegion::ExternalFlash => ms45_core::EXTERNAL_FLASH_LEN,
+                MemoryRegion::InternalMpc => ms45_core::MPC_FLASH_LEN,
+            };
+            if (start as usize)
+                .checked_add(length)
+                .is_none_or(|end| end > limit)
+            {
+                anyhow::bail!("backup range out of bounds");
+            }
+            let mut session = ReadOnlyAdapter::connect(adapter, Duration::from_secs(3))?;
+            let identity = session.identify()?;
+            let vin_hash = format!("{:x}", Sha256::digest(identity.vin.as_bytes()));
+            if identity.variant != expected_variant
+                || identity.hardware_reference != expected_hw_ref
+                || identity.software_reference != expected_sw_ref
+                || vin_hash != expected_vin_sha256.to_ascii_lowercase()
+            {
+                anyhow::bail!("ECU identity does not match pinned identity");
+            }
+            let mut bytes = Vec::with_capacity(length);
+            while bytes.len() < length {
+                let block = (length - bytes.len()).min(MAX_READ);
+                let address = start
+                    .checked_add(bytes.len() as u32)
+                    .context("backup address overflow")?;
+                bytes.extend_from_slice(&session.read(memory_region, address, block)?);
+            }
+            let digest = format!("{:x}", Sha256::digest(&bytes));
+            let parent = output.parent().unwrap_or_else(|| std::path::Path::new("."));
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+            temporary.write_all(&bytes)?;
+            temporary.as_file().sync_all()?;
+            temporary.persist(&output)?;
+            let verified = format!("{:x}", Sha256::digest(std::fs::read(&output)?));
+            if verified != digest {
+                anyhow::bail!("backup verification failed");
+            }
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":format!("{region:?}").to_ascii_lowercase(),"start":start,"length":length,"sha256":digest,"output":output})
+            );
+        }
         Command::PrepareTune { input, output } => {
             let input_bytes = read(&input)?;
             let payload = prepare_tune(&input_bytes)?;

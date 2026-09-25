@@ -1,6 +1,7 @@
 pub mod binary;
 pub mod checksum;
 pub mod flasher;
+pub mod read_only;
 pub mod signature;
 
 pub use binary::{
