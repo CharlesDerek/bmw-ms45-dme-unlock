@@ -2225,6 +2225,7 @@ dependencies = [
  "md-5",
  "num-bigint",
  "rand 0.8.6",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 

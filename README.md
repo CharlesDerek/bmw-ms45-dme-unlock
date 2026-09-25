@@ -26,6 +26,8 @@ Implemented:
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
   identity parsing, bounded reads, and a verified backup CLI. Its simulator
   exercises wrong variants, stale responses, short reads, and disconnects.
+* A versioned synthetic compatibility manifest for structural metadata and
+  overlap rejection, exercised by the Rust test suite.
 
 Not implemented yet:
 

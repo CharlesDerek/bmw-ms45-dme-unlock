@@ -1,0 +1,15 @@
+{
+  "schema_version": "ms45.synthetic-compatibility.v1",
+  "source": "synthetic recipes; no ECU binary material",
+  "cases": [
+    {"id":"ms450-tune-reference","variant":"MS45.0","recipe":"tune_valid","accept":true,"reason":"exact_software_reference"},
+    {"id":"ms451-tune-reference","variant":"MS45.1","recipe":"tune_valid","accept":true,"reason":"exact_software_reference"},
+    {"id":"tune-truncated","variant":"MS45.1","recipe":"tune_truncated","accept":false,"reason":"invalid_tune_length"},
+    {"id":"tune-nonnumeric","variant":"MS45.1","recipe":"tune_nonnumeric","accept":false,"reason":"invalid_numeric_metadata"},
+    {"id":"tune-embedded-reference","variant":"MS45.0","recipe":"tune_embedded_reference","accept":false,"reason":"reference_mismatch"},
+    {"id":"ms450-program-pair","variant":"MS45.0","recipe":"pair_valid","accept":true,"reason":"pair_metadata_match"},
+    {"id":"ms451-program-pair","variant":"MS45.1","recipe":"pair_valid","accept":true,"reason":"pair_metadata_match"},
+    {"id":"program-pair-incompatible","variant":"MS45.1","recipe":"pair_mismatch","accept":false,"reason":"pair_metadata_mismatch"},
+    {"id":"overlapping-segments","variant":"MS45.1","recipe":"overlap","accept":false,"reason":"overlapping_segments"}
+  ]
+}
