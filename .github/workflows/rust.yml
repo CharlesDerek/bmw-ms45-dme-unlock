@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - development
   pull_request:
 
 env:
@@ -38,6 +39,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace --all-targets
+
+      - name: Test read-only job bridge
+        run: python -m unittest discover -s scripts -p 'test_ms45_read_bridge.py'
 
   opentofu:
     name: OpenTofu

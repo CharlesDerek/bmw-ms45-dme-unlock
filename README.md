@@ -28,6 +28,8 @@ Implemented:
   exercises wrong variants, stale responses, short reads, and disconnects.
 * A versioned synthetic compatibility manifest for structural metadata and
   overlap rejection, exercised by the Rust test suite.
+* A loopback-only read-only EdiabasTest job bridge that can serve the backup
+  CLI after its PRG job/result mapping is independently validated on hardware.
 
 Not implemented yet:
 

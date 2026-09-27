@@ -25,3 +25,40 @@ The loopback fixture in Rust tests implements this protocol and injects
 identity, replay, short-read, and disconnect faults. Hardware acceptance still
 requires an adapter implementing the actual MS45.0/MS45.1 diagnostic jobs and
 bench verification of the address map, identity mapping, and backup contents.
+
+## EdiabasTest bridge
+
+`scripts/ms45_read_bridge.py` is a loopback-only MS45R1 server that invokes an
+operator-installed EdiabasTest executable for identification and memory reads.
+It never accepts write, erase, reset, or security-access requests. Configure it
+with a local JSON file (keep the file and any PRG assets out of Git):
+
+```json
+{
+  "profile": "legacy-ms45",
+  "command": ["/path/to/EdiabasTest.exe"],
+  "sgbd": "D_MOTOR.GRP",
+  "ecu_path": "/path/to/Ediabas/Ecu",
+  "port": "COM4",
+  "ifh": "STD:OBD"
+}
+```
+
+The `legacy-ms45` profile uses the `aif_lesen`, `hardware_referenz_lesen`,
+and `daten_referenz_lesen` identity jobs from the [original C# branch](https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/lts/MS45%20Flasher/MainWindow.xaml.cs). It maps
+hardware references `0044560` and `0044570` to MS45.0 and MS45.1, and reads
+`ROMX` or `LAR` with `speicher_lesen_ascii` in 254-byte chunks. Validate this
+mapping against the installed PRG and ECU before use. The bridge
+requires `JOB_STATUS: OKAY`, an exact read length, and a supported identity;
+unexpected output causes a rejected response. Start it with:
+
+```bash
+python scripts/ms45_read_bridge.py --config /private/path/ms45-bridge.json
+```
+
+Then run `ms45 backup` against `127.0.0.1:4581` with the pinned identity.
+The bridge uses EdiabasTest's [documented command-line arguments](https://uholeschak.github.io/ediabaslib/docs/EdiabasTest_parameters.html)
+(`--sgbd`, `--port`, `--ifh`, and `--job`). It is an executable integration boundary, but the repo has no
+observed physical ECU backup yet. The original C# code sometimes performed
+security access before reading; this bridge deliberately does not. A DME that
+requires security access will refuse the read.
