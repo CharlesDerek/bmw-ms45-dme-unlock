@@ -262,3 +262,9 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+
+# Local AI working notes
+AGENTS.md
+CODEX.md
+CLAUDE.md
+GEMINI.md
