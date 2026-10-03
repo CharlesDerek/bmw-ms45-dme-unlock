@@ -40,17 +40,18 @@ Add this object to the bridge configuration shown in
    Save its JSON output. Start the bridge normally in a second terminal.
 4. Build the pinned CLI (`cargo build --release -p ms45`) and record
    `target/release/ms45 --version` and `git rev-parse HEAD`.
-5. Run two complete reads, using the exact identity returned by the independently
-   checked label/job mapping:
+5. Run each backup command below. Each command performs two complete read passes
+   and reports `verified` only when their SHA-256 hashes match, using the exact
+   identity returned by the independently checked label/job mapping:
 
    ```text
    target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --bridge-version BRIDGE_VERSION --region external --start 0 --length 1048576 --output external.bin
    target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --bridge-version BRIDGE_VERSION --region mpc --start 0 --length 458752 --output mpc.bin
    ```
 
-6. Power-cycle the DME and repeat both reads to new files. Require each repeated
-   file to have the same SHA-256 as its first read (`sha256sum -c`). A mismatch,
-   short read, identity change, timeout, or bridge error fails acceptance.
+6. Power-cycle the DME and repeat both backup commands to new files. Require each
+   repeated file to have the same SHA-256 as its first backup (`sha256sum -c`). A
+   mismatch, short read, identity change, timeout, or bridge error fails acceptance.
 7. During a separate full external read and full MPC read, interrupt the bridge
    only after at least one block has completed. Confirm the `.partial` and
    `.progress.json` files remain, restart the bridge, and repeat the identical

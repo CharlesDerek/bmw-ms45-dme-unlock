@@ -125,7 +125,11 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        for payload in [b"MS45.1|HW1|SW1|TESTVIN".as_slice(), &[0x45; 16]] {
+        for payload in [
+            b"MS45.1|HW1|SW1|TESTVIN".as_slice(),
+            &[0x45; 16],
+            &[0x45; 16],
+        ] {
             let mut request = [0u8; 22];
             stream.read_exact(&mut request).unwrap();
             respond(&mut stream, &request, payload);
@@ -161,7 +165,8 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"status\":\"verified\""));
+        .stdout(predicate::str::contains("\"status\":\"verified\""))
+        .stdout(predicate::str::contains("\"read_passes\":2"));
     server.join().unwrap();
     assert_eq!(std::fs::read(output).unwrap(), vec![0x45; 16]);
     let manifest: serde_json::Value = serde_json::from_slice(
@@ -178,6 +183,7 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
     );
     assert_eq!(manifest["read_parameters"]["block_size"], 4096);
     assert_eq!(manifest["read_parameters"]["timeout_milliseconds"], 3000);
+    assert_eq!(manifest["read_parameters"]["passes"], 2);
     assert!(manifest["timestamps"]["started_at"]
         .as_str()
         .unwrap()
@@ -249,6 +255,20 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
         );
         assert_eq!(u16::from_be_bytes(request[20..22].try_into().unwrap()), 904);
         respond(&mut stream, &request, &[0x46; 904]);
+        stream.read_exact(&mut request).unwrap();
+        assert_eq!(u32::from_be_bytes(request[16..20].try_into().unwrap()), 0);
+        assert_eq!(
+            u16::from_be_bytes(request[20..22].try_into().unwrap()),
+            4096
+        );
+        respond(&mut stream, &request, &[0x45; 4096]);
+        stream.read_exact(&mut request).unwrap();
+        assert_eq!(
+            u32::from_be_bytes(request[16..20].try_into().unwrap()),
+            4096
+        );
+        assert_eq!(u16::from_be_bytes(request[20..22].try_into().unwrap()), 904);
+        respond(&mut stream, &request, &[0x46; 904]);
     });
     backup_command(second_address, &output, "5000", "2.0.0")
         .assert()
@@ -271,6 +291,37 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
     )
     .unwrap();
     assert_eq!(manifest["timestamps"]["started_at"], started_at);
+}
+
+#[test]
+fn backup_rejects_mismatched_independent_read_passes() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        for payload in [
+            b"MS45.1|HW1|SW1|TESTVIN".as_slice(),
+            &[0x45; 16],
+            &[0x46; 16],
+        ] {
+            let mut request = [0u8; 22];
+            stream.read_exact(&mut request).unwrap();
+            respond(&mut stream, &request, payload);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("backup.bin");
+    backup_command(address, &output, "16", "1.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "independent read pass hashes do not match",
+        ));
+    server.join().unwrap();
+    assert!(!output.exists());
+    assert!(!output.with_file_name("backup.bin.manifest.json").exists());
+    assert!(output.with_file_name("backup.bin.partial").exists());
+    assert!(output.with_file_name("backup.bin.progress.json").exists());
 }
 
 #[test]

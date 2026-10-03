@@ -162,7 +162,7 @@ fn main() -> Result<()> {
             )?;
             println!(
                 "{}",
-                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":digest,"resumed_bytes":resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
+                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":digest,"read_passes":backup::READ_PASSES,"resumed_bytes":resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
             );
         }
         Command::PrepareTune { input, output } => {

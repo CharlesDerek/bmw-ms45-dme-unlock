@@ -30,8 +30,11 @@ accepted as completed data.
 While a backup is incomplete, `<output>.partial` contains its data and
 `<output>.progress.json` contains the `ms45.backup-progress.v2` checkpoint. Keep
 the pair together and repeat the identical command to resume. After all blocks
-are durable, the partial file is atomically renamed to the requested output,
-the full file is hashed from disk, and the checkpoint is removed. The receipt's
+are durable, the partial file is hashed from disk and a second complete read is
+requested from the adapter. Only matching first- and second-pass SHA-256 hashes
+allow the file to be finalized, the checkpoint to be removed, and a `verified`
+receipt to be printed. A failed or mismatched verification pass leaves the
+partial file and checkpoint available for a retry. The receipt's
 `resumed_bytes` reports how much previously verified data was reused. The
 command cannot issue write operations.
 
@@ -39,8 +42,8 @@ Every successful backup also has a permanent `<output>.manifest.json` sidecar.
 Its `ms45.backup-manifest.v1` schema records SHA-256 hashes of each ECU identity
 field (never the VIN itself), the half-open address range, UTC start and
 completion timestamps, the binary's name, size and SHA-256, the pinned bridge
-version, CLI version, protocol, block size, and timeout. Both the binary and
-manifest are synced and the manifest is atomically replaced. Keep them
+version, CLI version, protocol, block size, timeout, and two-pass count. Both the
+binary and manifest are synced and the manifest is atomically replaced. Keep them
 together; verify the binary against `binary.sha256` before use. The required
 `--bridge-version` value is operator-pinned because MS45R1 deliberately does
 not expose host metadata; obtain it from the deployed bridge's `--version`.

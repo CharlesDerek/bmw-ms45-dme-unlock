@@ -14,6 +14,7 @@ const PROGRESS_SCHEMA: &str = "ms45.backup-progress.v2";
 const MANIFEST_SCHEMA: &str = "ms45.backup-manifest.v1";
 const PROTOCOL_VERSION: &str = "MS45R1";
 pub(crate) const ADAPTER_TIMEOUT: Duration = Duration::from_secs(3);
+pub(crate) const READ_PASSES: usize = 2;
 
 #[derive(Clone, Copy)]
 pub(crate) struct BackupRequest<'a> {
@@ -89,6 +90,7 @@ struct ReadParameters {
     protocol: &'static str,
     block_size: usize,
     timeout_milliseconds: u64,
+    passes: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -118,6 +120,7 @@ pub(crate) fn run(
         verify_partial(request.output, &progress)
             .context("finalized backup does not match verified progress")?;
         let digest = digest_file(request.output)?;
+        verify_second_pass(session, request, &digest)?;
         write_manifest(
             &manifest_path,
             identity,
@@ -174,6 +177,7 @@ pub(crate) fn run(
     partial.sync_all()?;
     drop(partial);
     let digest = digest_file(&partial_path)?;
+    verify_second_pass(session, request, &digest)?;
     std::fs::rename(&partial_path, request.output).with_context(|| {
         format!(
             "failed to finalize {} as {}",
@@ -182,10 +186,6 @@ pub(crate) fn run(
         )
     })?;
     sync_parent(request.output)?;
-    let verified = digest_file(request.output)?;
-    if verified != digest {
-        bail!("backup verification failed");
-    }
     write_manifest(
         &manifest_path,
         identity,
@@ -196,6 +196,37 @@ pub(crate) fn run(
     std::fs::remove_file(&progress_path)?;
     sync_parent(&progress_path)?;
     Ok((digest, completed))
+}
+
+fn verify_second_pass(
+    session: &mut ReadOnlyAdapter,
+    request: BackupRequest<'_>,
+    first_pass_digest: &str,
+) -> Result<()> {
+    let mut digest = Sha256::new();
+    let mut offset = 0usize;
+    while offset < request.length {
+        let block_len = (request.length - offset).min(MAX_READ);
+        let address = request
+            .start
+            .checked_add(u32::try_from(offset).context("backup offset overflow")?)
+            .context("backup address overflow")?;
+        let block = session
+            .read(request.region, address, block_len)
+            .context("backup verification read failed")?;
+        if block.len() != block_len {
+            bail!("adapter returned an ambiguous verification block");
+        }
+        digest.update(&block);
+        offset = offset
+            .checked_add(block_len)
+            .context("backup verification length overflow")?;
+    }
+    let second_pass_digest = format!("{:x}", digest.finalize());
+    if second_pass_digest != first_pass_digest {
+        bail!("backup verification failed: independent read pass hashes do not match");
+    }
+    Ok(())
 }
 
 fn load_progress(path: &Path, identity: &Identity, request: BackupRequest<'_>) -> Result<Progress> {
@@ -341,6 +372,7 @@ fn write_manifest(
             protocol: PROTOCOL_VERSION,
             block_size: MAX_READ,
             timeout_milliseconds: ADAPTER_TIMEOUT.as_millis() as u64,
+            passes: READ_PASSES,
         },
     };
     persist_json(path, &manifest)

@@ -128,16 +128,18 @@ cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
 ```
 
 The command checkpoints each verified 4096-byte block, safely resumes the same
-output after interruption, finalizes the file atomically, verifies its SHA-256
-from disk, and prints a JSON receipt with the VIN hash only. Resume progress is
-stored beside the requested output as `<output>.partial` and
+output after interruption, and hashes the first pass from disk. It then performs
+a second complete adapter read and requires both SHA-256 hashes to match before
+finalizing the file and printing a verified JSON receipt with the VIN hash only.
+Resume progress is stored beside the requested output as `<output>.partial` and
 `<output>.progress.json`; keep both files together and rerun the identical
 command. The progress file binds block hashes to the exact ECU identity,
 bridge version, region, start, and length. Do not edit it. On completion,
 `<output>.manifest.json` is written atomically beside the backup using the
 versioned `ms45.backup-manifest.v1` format. It records hashed ECU identity
 fields, the address range, UTC start/completion timestamps, binary length and
-SHA-256, bridge and CLI versions, and effective read parameters. Supply the
+SHA-256, bridge and CLI versions, and effective read parameters including the
+two-pass count. Supply the
 version printed by `scripts/ms45_read_bridge.py --version` to
 `--bridge-version`. The adapter wire format is
 documented in [read-only transport](docs/read-only-transport.md). This is an
