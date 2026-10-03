@@ -13,8 +13,14 @@ Implemented:
   existing `FlashBackend`, so transport choices cannot bypass the flash plan.
 - An offline-testable `FlashPlan` that validates segment layout and connected
   identity, then checks every written block through `read_memory` before
-  signature verification and reset. No live transport implementation is
-  provided, so this is a safety contract rather than a live flashing feature.
+  signature verification and reset. Its cancellable execution API checks for
+  cancellation before security access and between complete, read-back-verified
+  blocks, never during a backend operation. An interrupted execution returns a
+  `FlashExecutionState` that reports its phase, verified byte count, and whether
+  reset is permitted. Reset permission is fail-closed before attempting erase
+  and is restored only after signature verification succeeds. No live transport
+  implementation is provided, so this is a safety contract rather than a live
+  flashing feature.
 - A stateful `BenchSimulator` implementing `FlashBackend`. Its deterministic
   fault schedule covers virtual timeouts, persistent voltage loss, security
   rejection, partial erase state, corrupted reads, and disconnects. See
@@ -37,8 +43,9 @@ or protocol-level ECU emulator.
 
 Hardware acceptance still requires validating the installed PRG result names,
 serial timing/framing, address maps, security access, erase/write/readback,
-signature checking, and reset behavior on both MS45 variants. No physical
-hardware validation is claimed by this repository.
+signature checking, cancellation latency between real diagnostic jobs, and
+reset behavior on both MS45 variants. No physical hardware validation is
+claimed by this repository.
 
 ## Build
 

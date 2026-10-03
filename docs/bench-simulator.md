@@ -42,7 +42,10 @@ bench.add_fault(BenchFault::Timeout {
 ```
 
 The integration suite runs each requested failure through the real `FlashPlan`
-and verifies that signature checking/reset remain fenced after a failure.
+and verifies that signature checking/reset remain fenced after a failure. It
+also cancels a run between read-back-verified blocks and checks the returned
+execution state: reset remains forbidden because erase has begun and signature
+verification has not succeeded.
 
 ## External acceptance remains required
 

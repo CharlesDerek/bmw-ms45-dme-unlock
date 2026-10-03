@@ -17,7 +17,10 @@ Implemented:
 * A fail-closed live-flash execution plan with identity pinning, overlap and
   address validation, bounded block writes, aggregate progress, signature
   verification, per-block readback, and fencing of reset after any failed
-  operation. The plan can also pin the expected VIN before security access.
+  operation. Cancellation is observed before security access and between
+  verified blocks, with a fail-closed state report that explicitly says whether
+  reset remains permitted. The plan can also pin the expected VIN before
+  security access.
 * Metadata validation for tune/software reference, program/hardware reference, and external/MPC pairing.
 * Exact numeric reference matching that rejects blank or malformed binary
   metadata and avoids accepting a shorter reference embedded in a longer one.

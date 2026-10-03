@@ -32,6 +32,49 @@ pub struct FlashProgress {
     pub total: usize,
 }
 
+/// The last boundary reached by a flash execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlashPhase {
+    Preflight,
+    SecurityAccessGranted,
+    Erasing,
+    Writing,
+    BetweenBlocks,
+    CheckingSignature,
+    SignatureVerified,
+    Resetting,
+}
+
+/// A fail-closed snapshot of an interrupted or failed flash execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlashExecutionState {
+    pub phase: FlashPhase,
+    pub completed_bytes: usize,
+    pub total_bytes: usize,
+    /// Whether the plan has established that issuing reset is safe.
+    ///
+    /// This becomes false before the first erase is attempted and becomes true
+    /// again only after the ECU accepts the signature check.
+    pub reset_permitted: bool,
+}
+
+impl std::fmt::Display for FlashExecutionState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "phase={:?}, verified_bytes={}/{}, reset_permitted={}",
+            self.phase, self.completed_bytes, self.total_bytes, self.reset_permitted
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("flash execution failed ({state}): {error}")]
+pub struct FlashExecutionFailure {
+    pub error: FlashError,
+    pub state: FlashExecutionState,
+}
+
 #[derive(Debug, Error)]
 pub enum FlashError {
     #[error("backend does not implement live DME access yet")]
@@ -48,6 +91,8 @@ pub enum FlashError {
     ProgrammingState(String),
     #[error("flash readback differs from approved payload at address {address:#x}")]
     ReadbackMismatch { address: u32 },
+    #[error("flash execution was cancelled at a block boundary")]
+    Cancelled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,61 +204,127 @@ impl FlashPlan {
         backend: &mut dyn FlashBackend,
         progress: &mut dyn FnMut(FlashProgress),
     ) -> Result<FlashReceipt, FlashError> {
-        let identity = backend.identify()?;
+        self.execute_cancellable(backend, progress, &mut |_| false)
+            .map_err(|failure| failure.error)
+    }
+
+    /// Execute a plan while allowing cancellation at preflight and between
+    /// fully written, read-back-verified blocks.
+    ///
+    /// `cancel` is never called during an ECU operation. A true result stops
+    /// without checking the signature or resetting and returns the exact
+    /// fail-closed state so the caller can report whether reset is permitted.
+    pub fn execute_cancellable(
+        &self,
+        backend: &mut dyn FlashBackend,
+        progress: &mut dyn FnMut(FlashProgress),
+        cancel: &mut dyn FnMut(FlashExecutionState) -> bool,
+    ) -> Result<FlashReceipt, FlashExecutionFailure> {
+        let total = self.segments.iter().map(|segment| segment.data.len()).sum();
+        let mut state = FlashExecutionState {
+            phase: FlashPhase::Preflight,
+            completed_bytes: 0,
+            total_bytes: total,
+            reset_permitted: true,
+        };
+        let fail = |error, state| FlashExecutionFailure { error, state };
+
+        let identity = backend.identify().map_err(|error| fail(error, state))?;
         if identity.programming_status != "1" {
-            return Err(FlashError::ProgrammingState(
-                identity.programming_status.clone(),
+            return Err(fail(
+                FlashError::ProgrammingState(identity.programming_status.clone()),
+                state,
             ));
         }
         if identity.hardware_reference != self.expected_hardware_reference {
-            return Err(FlashError::IdentityMismatch(format!(
-                "hardware reference expected {}, found {}",
-                self.expected_hardware_reference, identity.hardware_reference
-            )));
+            return Err(fail(
+                FlashError::IdentityMismatch(format!(
+                    "hardware reference expected {}, found {}",
+                    self.expected_hardware_reference, identity.hardware_reference
+                )),
+                state,
+            ));
         }
         if let Some(expected) = &self.expected_software_reference {
             if identity.software_reference != *expected {
-                return Err(FlashError::IdentityMismatch(format!(
-                    "software reference expected {expected}, found {}",
-                    identity.software_reference
-                )));
+                return Err(fail(
+                    FlashError::IdentityMismatch(format!(
+                        "software reference expected {expected}, found {}",
+                        identity.software_reference
+                    )),
+                    state,
+                ));
             }
         }
         if let Some(expected) = &self.expected_vin {
             if identity.vin != *expected {
-                return Err(FlashError::IdentityMismatch(
-                    "VIN differs from approved plan".to_string(),
+                return Err(fail(
+                    FlashError::IdentityMismatch("VIN differs from approved plan".to_string()),
+                    state,
                 ));
             }
         }
 
-        backend.request_security_access(SecurityLevel::Programming)?;
-        let total = self.segments.iter().map(|segment| segment.data.len()).sum();
+        if cancel(state) {
+            return Err(fail(FlashError::Cancelled, state));
+        }
+        backend
+            .request_security_access(SecurityLevel::Programming)
+            .map_err(|error| fail(error, state))?;
+        state.phase = FlashPhase::SecurityAccessGranted;
         let mut completed = 0usize;
         for segment in &self.segments {
-            backend.erase(segment.start, segment.data.len())?;
+            state.phase = FlashPhase::Erasing;
+            state.reset_permitted = false;
+            backend
+                .erase(segment.start, segment.data.len())
+                .map_err(|error| fail(error, state))?;
             for (block_index, block) in segment.data.chunks(self.block_size).enumerate() {
+                state.phase = FlashPhase::Writing;
                 let offset = block_index.checked_mul(self.block_size).ok_or_else(|| {
-                    FlashError::InvalidPlan("block offset overflowed".to_string())
+                    fail(
+                        FlashError::InvalidPlan("block offset overflowed".to_string()),
+                        state,
+                    )
                 })?;
                 let offset = u32::try_from(offset).map_err(|_| {
-                    FlashError::InvalidPlan("block offset exceeded address space".to_string())
+                    fail(
+                        FlashError::InvalidPlan("block offset exceeded address space".to_string()),
+                        state,
+                    )
                 })?;
                 let address = segment.start.checked_add(offset).ok_or_else(|| {
-                    FlashError::InvalidPlan("block address overflowed".to_string())
+                    fail(
+                        FlashError::InvalidPlan("block address overflowed".to_string()),
+                        state,
+                    )
                 })?;
-                backend.write_block(address, block, &mut |_| {})?;
-                let readback =
-                    backend.read_memory(segment.region, address, block.len(), &mut |_| {})?;
+                backend
+                    .write_block(address, block, &mut |_| {})
+                    .map_err(|error| fail(error, state))?;
+                let readback = backend
+                    .read_memory(segment.region, address, block.len(), &mut |_| {})
+                    .map_err(|error| fail(error, state))?;
                 if readback != block {
-                    return Err(FlashError::ReadbackMismatch { address });
+                    return Err(fail(FlashError::ReadbackMismatch { address }, state));
                 }
                 completed += block.len();
+                state.phase = FlashPhase::BetweenBlocks;
+                state.completed_bytes = completed;
                 progress(FlashProgress { completed, total });
+                if cancel(state) {
+                    return Err(fail(FlashError::Cancelled, state));
+                }
             }
         }
-        backend.check_signature(self.program_signature)?;
-        backend.reset()?;
+        state.phase = FlashPhase::CheckingSignature;
+        backend
+            .check_signature(self.program_signature)
+            .map_err(|error| fail(error, state))?;
+        state.phase = FlashPhase::SignatureVerified;
+        state.reset_permitted = true;
+        state.phase = FlashPhase::Resetting;
+        backend.reset().map_err(|error| fail(error, state))?;
 
         Ok(FlashReceipt {
             identity,
@@ -511,5 +622,46 @@ mod tests {
             Err(FlashError::IdentityMismatch(_))
         ));
         assert_eq!(backend.operations, vec!["identify"]);
+    }
+
+    #[test]
+    fn cancellation_before_security_leaves_reset_permitted() {
+        let mut backend = RecordingBackend::default();
+        let failure = plan()
+            .execute_cancellable(&mut backend, &mut |_| {}, &mut |_| true)
+            .unwrap_err();
+
+        assert!(matches!(failure.error, FlashError::Cancelled));
+        assert_eq!(failure.state.phase, FlashPhase::Preflight);
+        assert_eq!(failure.state.completed_bytes, 0);
+        assert!(failure.state.reset_permitted);
+        assert_eq!(backend.operations, vec!["identify"]);
+    }
+
+    #[test]
+    fn cancellation_after_verified_block_is_fail_closed_and_stops_cleanly() {
+        let mut backend = RecordingBackend::default();
+        let failure = plan()
+            .execute_cancellable(&mut backend, &mut |_| {}, &mut |state| {
+                state.completed_bytes == 4
+            })
+            .unwrap_err();
+
+        assert!(matches!(failure.error, FlashError::Cancelled));
+        assert_eq!(failure.state.phase, FlashPhase::BetweenBlocks);
+        assert_eq!(failure.state.completed_bytes, 4);
+        assert_eq!(failure.state.total_bytes, 10);
+        assert!(!failure.state.reset_permitted);
+        assert!(failure.to_string().contains("reset_permitted=false"));
+        assert_eq!(
+            backend.operations,
+            vec![
+                "identify",
+                "security",
+                "erase:1000:10",
+                "write:1000:4",
+                "read:1000:4"
+            ]
+        );
     }
 }

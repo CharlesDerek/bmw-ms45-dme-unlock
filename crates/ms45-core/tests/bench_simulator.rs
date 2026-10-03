@@ -194,3 +194,31 @@ fn invalid_or_ambiguous_fault_schedules_are_rejected() {
         })
         .is_err());
 }
+
+#[test]
+fn cancellation_is_observed_only_after_verified_blocks() {
+    let mut simulator = BenchSimulator::new(identity());
+    let mut checkpoints = Vec::new();
+    let failure = plan()
+        .execute_cancellable(&mut simulator, &mut |_| {}, &mut |state| {
+            checkpoints.push(state);
+            state.completed_bytes >= 8
+        })
+        .unwrap_err();
+
+    assert!(matches!(failure.error, FlashError::Cancelled));
+    assert_eq!(failure.state.completed_bytes, 8);
+    assert!(!failure.state.reset_permitted);
+    assert_eq!(checkpoints[0].completed_bytes, 0);
+    assert_eq!(checkpoints[1].completed_bytes, 4);
+    assert_eq!(checkpoints[2].completed_bytes, 8);
+    assert_eq!(
+        simulator
+            .events()
+            .iter()
+            .filter(|event| event.operation == BenchOperation::Write)
+            .count(),
+        2
+    );
+    assert_reset_fenced(&simulator);
+}
