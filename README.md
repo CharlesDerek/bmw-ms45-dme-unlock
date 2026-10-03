@@ -19,7 +19,9 @@ Implemented:
   verification, per-block readback, and fencing of reset after any failed
   operation. Cancellation is observed before security access and between
   verified blocks, with a fail-closed state report that explicitly says whether
-  reset remains permitted. The plan can also pin the expected VIN before
+  reset remains permitted. Before erase, three acceptable battery readings
+  must be stable; voltage is then rechecked before every remaining destructive
+  or verification operation. The plan can also pin the expected VIN before
   security access.
 * Metadata validation for tune/software reference, program/hardware reference, and external/MPC pairing.
 * Exact numeric reference matching that rejects blank or malformed binary

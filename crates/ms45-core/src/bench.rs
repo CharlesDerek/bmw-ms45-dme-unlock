@@ -2,13 +2,14 @@
 use crate::flasher::{
     DmeIdentity, FlashBackend, FlashError, FlashProgress, MemoryRegion, SecurityLevel,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BenchOperation {
     Identify,
+    VoltageRead,
     SecurityAccess,
     Erase,
     Write,
@@ -89,6 +90,7 @@ pub enum BenchConfigurationError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BenchOutcome {
     Completed,
+    VoltageMeasured { millivolts: u16 },
     TimedOut,
     VoltageLost,
     SecurityRejected,
@@ -115,6 +117,8 @@ pub struct BenchSimulator {
     events: Vec<BenchEvent>,
     elapsed: Duration,
     powered: bool,
+    voltage_readings_mv: VecDeque<u16>,
+    last_voltage_mv: u16,
 }
 
 impl BenchSimulator {
@@ -127,6 +131,8 @@ impl BenchSimulator {
             events: Vec::new(),
             elapsed: Duration::ZERO,
             powered: true,
+            voltage_readings_mv: VecDeque::new(),
+            last_voltage_mv: 13_800,
         }
     }
 
@@ -176,6 +182,14 @@ impl BenchSimulator {
 
     pub fn is_powered(&self) -> bool {
         self.powered
+    }
+
+    /// Queue voltage samples. Once exhausted, the final sample is held.
+    pub fn set_voltage_readings(&mut self, readings_mv: impl IntoIterator<Item = u16>) {
+        self.voltage_readings_mv = readings_mv.into_iter().collect();
+        if let Some(last) = self.voltage_readings_mv.back() {
+            self.last_voltage_mv = *last;
+        }
     }
 
     /// Simulate restoring bench voltage. Faults already triggered stay consumed.
@@ -254,6 +268,28 @@ impl FlashBackend for BenchSimulator {
     fn identify(&mut self) -> Result<DmeIdentity, FlashError> {
         self.finish_simple(BenchOperation::Identify)?;
         Ok(self.identity.clone())
+    }
+
+    fn battery_voltage_mv(&mut self) -> Result<u16, FlashError> {
+        let operation = BenchOperation::VoltageRead;
+        let (occurrence, fault) = self.begin(operation);
+        self.apply_common_fault(operation, occurrence, fault.as_ref())?;
+        let measured = if self.powered {
+            self.voltage_readings_mv
+                .pop_front()
+                .unwrap_or(self.last_voltage_mv)
+        } else {
+            0
+        };
+        self.last_voltage_mv = measured;
+        self.complete(
+            operation,
+            occurrence,
+            BenchOutcome::VoltageMeasured {
+                millivolts: measured,
+            },
+        );
+        Ok(measured)
     }
 
     fn request_security_access(&mut self, _: SecurityLevel) -> Result<(), FlashError> {

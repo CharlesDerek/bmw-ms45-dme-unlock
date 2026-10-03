@@ -20,5 +20,6 @@ pub use binary::{
 pub use flasher::{
     DmeIdentity, FlashBackend, FlashError, FlashExecutionFailure, FlashExecutionState, FlashPhase,
     FlashPlan, FlashProgress, FlashReceipt, FlashSegment, MemoryRegion, ReadKind, SecurityLevel,
+    VoltagePolicy,
 };
 pub use signature::security_access_message;

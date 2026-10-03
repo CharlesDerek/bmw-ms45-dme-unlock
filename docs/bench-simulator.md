@@ -2,8 +2,18 @@
 
 `ms45_core::BenchSimulator` is an in-memory `FlashBackend` for repeatable flash
 workflow tests. It models an identity, byte-addressed flash (erased bytes read
-as `0xff`), persistent voltage state, virtual elapsed time, and a trace of every
-attempted operation. It performs no I/O, never sleeps, and cannot access a DME.
+as `0xff`), integer-millivolt battery readings, persistent power-loss state,
+virtual elapsed time, and a trace of every attempted operation. It performs no
+I/O, never sleeps, and cannot access a DME.
+
+`FlashPlan` defaults to a 12,000–15,000 mV acceptable range. It requires three
+consecutive in-range readings whose spread is at most 200 mV before the first
+erase. It then takes a fresh in-range reading before every later erase, block
+write, readback, signature check, and reset. A failed reading stops before that
+operation; reset remains fenced if erase has started. `VoltagePolicy` can make
+these limits stricter for a particular bench setup. `set_voltage_readings`
+queues deterministic samples and holds the final value after the queue is
+exhausted; each sample appears as a `VoltageRead` event.
 
 Faults are scheduled at a `FaultPoint`, which pairs an operation with its
 one-based occurrence. Specialized faults select their operation implicitly:
@@ -55,4 +65,6 @@ MS45.0/MS45.1 DME. Those require a fused, current-limited physical bench and an
 independently validated write-capable adapter. The existing
 [read-only bench procedure](bench-acceptance.md) does not authorize destructive
 testing; a separately reviewed write/recovery procedure is required before
-running these scenarios against hardware.
+running these scenarios against hardware. That acceptance must validate the
+adapter's DME voltage job/result mapping against a calibrated meter and confirm
+the configured thresholds under load; no such hardware validation is claimed.

@@ -135,6 +135,10 @@ impl<J: DiagnosticJobs> FlashBackend for EcuOperations<J> {
         })
     }
 
+    fn battery_voltage_mv(&mut self) -> Result<u16, FlashError> {
+        self.jobs.battery_voltage_mv().map_err(flash_error)
+    }
+
     fn request_security_access(&mut self, level: SecurityLevel) -> Result<(), FlashError> {
         self.jobs
             .request_security_access(level)

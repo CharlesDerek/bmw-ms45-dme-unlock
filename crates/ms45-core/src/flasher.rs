@@ -32,6 +32,26 @@ pub struct FlashProgress {
     pub total: usize,
 }
 
+/// Battery-supply limits enforced by [`FlashPlan`] around destructive work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VoltagePolicy {
+    pub minimum_mv: u16,
+    pub maximum_mv: u16,
+    pub stable_readings: usize,
+    pub maximum_spread_mv: u16,
+}
+
+impl Default for VoltagePolicy {
+    fn default() -> Self {
+        Self {
+            minimum_mv: 12_000,
+            maximum_mv: 15_000,
+            stable_readings: 3,
+            maximum_spread_mv: 200,
+        }
+    }
+}
+
 /// The last boundary reached by a flash execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlashPhase {
@@ -93,6 +113,18 @@ pub enum FlashError {
     ReadbackMismatch { address: u32 },
     #[error("flash execution was cancelled at a block boundary")]
     Cancelled,
+    #[error("battery voltage {measured_mv} mV is outside the permitted {minimum_mv}..={maximum_mv} mV range")]
+    BatteryVoltageOutOfRange {
+        measured_mv: u16,
+        minimum_mv: u16,
+        maximum_mv: u16,
+    },
+    #[error("battery voltage was not stable before erase: {minimum_mv}..={maximum_mv} mV exceeds the permitted {maximum_spread_mv} mV spread")]
+    BatteryVoltageUnstable {
+        minimum_mv: u16,
+        maximum_mv: u16,
+        maximum_spread_mv: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +142,7 @@ pub struct FlashPlan {
     segments: Vec<FlashSegment>,
     block_size: usize,
     program_signature: bool,
+    voltage_policy: VoltagePolicy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +218,23 @@ impl FlashPlan {
             segments,
             block_size,
             program_signature,
+            voltage_policy: VoltagePolicy::default(),
         })
+    }
+
+    pub fn with_voltage_policy(mut self, policy: VoltagePolicy) -> Result<Self, FlashError> {
+        if policy.minimum_mv > policy.maximum_mv {
+            return Err(FlashError::InvalidPlan(
+                "minimum battery voltage exceeds maximum".into(),
+            ));
+        }
+        if policy.stable_readings < 2 || policy.stable_readings > 16 {
+            return Err(FlashError::InvalidPlan(
+                "stable voltage reading count must be between 2 and 16".into(),
+            ));
+        }
+        self.voltage_policy = policy;
+        Ok(self)
     }
 
     pub fn with_expected_vin(mut self, vin: impl Into<String>) -> Result<Self, FlashError> {
@@ -272,10 +321,16 @@ impl FlashPlan {
             .request_security_access(SecurityLevel::Programming)
             .map_err(|error| fail(error, state))?;
         state.phase = FlashPhase::SecurityAccessGranted;
+        self.require_stable_voltage(backend)
+            .map_err(|error| fail(error, state))?;
         let mut completed = 0usize;
-        for segment in &self.segments {
+        for (segment_index, segment) in self.segments.iter().enumerate() {
             state.phase = FlashPhase::Erasing;
             state.reset_permitted = false;
+            if segment_index != 0 {
+                self.require_acceptable_voltage(backend)
+                    .map_err(|error| fail(error, state))?;
+            }
             backend
                 .erase(segment.start, segment.data.len())
                 .map_err(|error| fail(error, state))?;
@@ -299,8 +354,12 @@ impl FlashPlan {
                         state,
                     )
                 })?;
+                self.require_acceptable_voltage(backend)
+                    .map_err(|error| fail(error, state))?;
                 backend
                     .write_block(address, block, &mut |_| {})
+                    .map_err(|error| fail(error, state))?;
+                self.require_acceptable_voltage(backend)
                     .map_err(|error| fail(error, state))?;
                 let readback = backend
                     .read_memory(segment.region, address, block.len(), &mut |_| {})
@@ -318,12 +377,16 @@ impl FlashPlan {
             }
         }
         state.phase = FlashPhase::CheckingSignature;
+        self.require_acceptable_voltage(backend)
+            .map_err(|error| fail(error, state))?;
         backend
             .check_signature(self.program_signature)
             .map_err(|error| fail(error, state))?;
         state.phase = FlashPhase::SignatureVerified;
         state.reset_permitted = true;
         state.phase = FlashPhase::Resetting;
+        self.require_acceptable_voltage(backend)
+            .map_err(|error| fail(error, state))?;
         backend.reset().map_err(|error| fail(error, state))?;
 
         Ok(FlashReceipt {
@@ -332,10 +395,45 @@ impl FlashPlan {
             bytes_written: total,
         })
     }
+
+    fn require_acceptable_voltage(
+        &self,
+        backend: &mut dyn FlashBackend,
+    ) -> Result<u16, FlashError> {
+        let measured_mv = backend.battery_voltage_mv()?;
+        if !(self.voltage_policy.minimum_mv..=self.voltage_policy.maximum_mv).contains(&measured_mv)
+        {
+            return Err(FlashError::BatteryVoltageOutOfRange {
+                measured_mv,
+                minimum_mv: self.voltage_policy.minimum_mv,
+                maximum_mv: self.voltage_policy.maximum_mv,
+            });
+        }
+        Ok(measured_mv)
+    }
+
+    fn require_stable_voltage(&self, backend: &mut dyn FlashBackend) -> Result<(), FlashError> {
+        let mut minimum_mv = u16::MAX;
+        let mut maximum_mv = u16::MIN;
+        for _ in 0..self.voltage_policy.stable_readings {
+            let measured_mv = self.require_acceptable_voltage(backend)?;
+            minimum_mv = minimum_mv.min(measured_mv);
+            maximum_mv = maximum_mv.max(measured_mv);
+        }
+        if maximum_mv - minimum_mv > self.voltage_policy.maximum_spread_mv {
+            return Err(FlashError::BatteryVoltageUnstable {
+                minimum_mv,
+                maximum_mv,
+                maximum_spread_mv: self.voltage_policy.maximum_spread_mv,
+            });
+        }
+        Ok(())
+    }
 }
 
 pub trait FlashBackend {
     fn identify(&mut self) -> Result<DmeIdentity, FlashError>;
+    fn battery_voltage_mv(&mut self) -> Result<u16, FlashError>;
     fn request_security_access(&mut self, level: SecurityLevel) -> Result<(), FlashError>;
     fn read_memory(
         &mut self,
@@ -360,6 +458,10 @@ pub struct UnsupportedLiveBackend;
 
 impl FlashBackend for UnsupportedLiveBackend {
     fn identify(&mut self) -> Result<DmeIdentity, FlashError> {
+        Err(FlashError::UnsupportedBackend)
+    }
+
+    fn battery_voltage_mv(&mut self) -> Result<u16, FlashError> {
         Err(FlashError::UnsupportedBackend)
     }
 
@@ -411,6 +513,7 @@ mod tests {
         corrupt_read_at: Option<u32>,
         programming_status: Option<String>,
         memory: BTreeMap<u32, u8>,
+        voltage_mv: Option<u16>,
     }
 
     impl FlashBackend for RecordingBackend {
@@ -430,6 +533,10 @@ mod tests {
         fn request_security_access(&mut self, _: SecurityLevel) -> Result<(), FlashError> {
             self.operations.push("security".into());
             Ok(())
+        }
+        fn battery_voltage_mv(&mut self) -> Result<u16, FlashError> {
+            self.operations.push("voltage".into());
+            Ok(self.voltage_mv.unwrap_or(13_800))
         }
         fn read_memory(
             &mut self,
@@ -512,14 +619,25 @@ mod tests {
             vec![
                 "identify",
                 "security",
+                "voltage",
+                "voltage",
+                "voltage",
                 "erase:1000:10",
+                "voltage",
                 "write:1000:4",
+                "voltage",
                 "read:1000:4",
+                "voltage",
                 "write:1004:4",
+                "voltage",
                 "read:1004:4",
+                "voltage",
                 "write:1008:2",
+                "voltage",
                 "read:1008:2",
+                "voltage",
                 "signature:false",
+                "voltage",
                 "reset"
             ]
         );
@@ -658,8 +776,13 @@ mod tests {
             vec![
                 "identify",
                 "security",
+                "voltage",
+                "voltage",
+                "voltage",
                 "erase:1000:10",
+                "voltage",
                 "write:1000:4",
+                "voltage",
                 "read:1000:4"
             ]
         );

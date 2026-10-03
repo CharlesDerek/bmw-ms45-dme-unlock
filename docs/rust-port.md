@@ -21,6 +21,12 @@ Implemented:
   and is restored only after signature verification succeeds. No live transport
   implementation is provided, so this is a safety contract rather than a live
   flashing feature.
+- Battery voltage is an explicit `FlashBackend` measurement in millivolts. The
+  flash plan requires a stable window of acceptable readings before its first
+  erase and rechecks the acceptable range before each later erase, write,
+  readback, signature check, and reset. Read-only diagnostic jobs reject the
+  measurement by default, so a future write backend must deliberately implement
+  and validate the model-specific voltage job.
 - A stateful `BenchSimulator` implementing `FlashBackend`. Its deterministic
   fault schedule covers virtual timeouts, persistent voltage loss, security
   rejection, partial erase state, corrupted reads, and disconnects. See
@@ -44,8 +50,9 @@ or protocol-level ECU emulator.
 Hardware acceptance still requires validating the installed PRG result names,
 serial timing/framing, address maps, security access, erase/write/readback,
 signature checking, cancellation latency between real diagnostic jobs, and
-reset behavior on both MS45 variants. No physical hardware validation is
-claimed by this repository.
+reset behavior on both MS45 variants. It must also compare reported voltage to
+a calibrated external meter under load and exercise threshold crossings on both
+MS45 variants. No physical hardware validation is claimed by this repository.
 
 ## Build
 

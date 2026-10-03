@@ -34,6 +34,10 @@ pub trait DiagnosticJobs {
         start: u32,
         len: usize,
     ) -> Result<Vec<u8>, DiagnosticError>;
+    /// Read the DME supply voltage in integer millivolts.
+    fn battery_voltage_mv(&mut self) -> Result<u16, DiagnosticError> {
+        Err(DiagnosticError::Rejected)
+    }
     fn request_security_access(&mut self, _level: SecurityLevel) -> Result<(), DiagnosticError> {
         Err(DiagnosticError::Rejected)
     }

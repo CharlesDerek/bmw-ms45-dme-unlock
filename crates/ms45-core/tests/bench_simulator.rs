@@ -222,3 +222,69 @@ fn cancellation_is_observed_only_after_verified_blocks() {
     );
     assert_reset_fenced(&simulator);
 }
+
+#[test]
+fn low_voltage_prevents_erase() {
+    let mut simulator = BenchSimulator::new(identity());
+    simulator.set_voltage_readings([13_800, 11_900, 13_800]);
+
+    assert!(matches!(
+        plan().execute(&mut simulator, &mut |_| {}),
+        Err(FlashError::BatteryVoltageOutOfRange {
+            measured_mv: 11_900,
+            ..
+        })
+    ));
+    assert!(!simulator
+        .events()
+        .iter()
+        .any(|event| event.operation == BenchOperation::Erase));
+    assert_eq!(
+        simulator.events().last().unwrap().outcome,
+        BenchOutcome::VoltageMeasured { millivolts: 11_900 }
+    );
+}
+
+#[test]
+fn acceptable_but_unstable_voltage_prevents_erase() {
+    let mut simulator = BenchSimulator::new(identity());
+    simulator.set_voltage_readings([12_500, 13_800, 12_500]);
+
+    assert!(matches!(
+        plan().execute(&mut simulator, &mut |_| {}),
+        Err(FlashError::BatteryVoltageUnstable { .. })
+    ));
+    assert!(!simulator
+        .events()
+        .iter()
+        .any(|event| event.operation == BenchOperation::Erase));
+}
+
+#[test]
+fn voltage_dip_during_writes_stops_before_the_next_operation() {
+    let mut simulator = BenchSimulator::new(identity());
+    // Three stable pre-erase samples, write 1, read 1, then reject write 2.
+    simulator.set_voltage_readings([13_800, 13_810, 13_790, 13_800, 13_800, 11_500]);
+
+    let failure = plan()
+        .execute_cancellable(&mut simulator, &mut |_| {}, &mut |_| false)
+        .unwrap_err();
+    assert!(matches!(
+        failure.error,
+        FlashError::BatteryVoltageOutOfRange {
+            measured_mv: 11_500,
+            ..
+        }
+    ));
+    assert_eq!(failure.state.completed_bytes, 4);
+    assert!(!failure.state.reset_permitted);
+    assert_eq!(
+        simulator
+            .events()
+            .iter()
+            .filter(|event| event.operation == BenchOperation::Write)
+            .count(),
+        1
+    );
+    assert_reset_fenced(&simulator);
+}
