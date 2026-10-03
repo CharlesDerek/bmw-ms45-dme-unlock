@@ -75,6 +75,25 @@ against `binary.sha256` before use. The required
 `--bridge-version` value is operator-pinned because MS45R1 deliberately does
 not expose host metadata; obtain it from the deployed bridge's `--version`.
 
+Optional encrypted publication is enabled only when the operator supplies
+`--encrypt-with PROGRAM`. Each repeatable `--encrypt-arg VALUE` is passed
+verbatim; the CLI does not invoke a shell. After both ECU read passes match, the
+program reads plaintext from stdin and writes its encrypted container to stdout.
+The CLI requires a successful exit and nonempty output, syncs and atomically
+publishes it without overwriting, and records both the plaintext SHA-256 and the
+encrypted artifact SHA-256 in `ms45.backup-manifest.v2`. Arguments are omitted
+from the manifest because they may disclose recipient or configuration data.
+Use the encryption tool's key files, environment, hardware token, or agent for
+credentials rather than putting a passphrase in an argument. Validate encryption
+and decryption with the exact operator-selected tool and key setup before the
+first hardware backup.
+
+Encryption occurs after verification, so resumable `.partial` data is plaintext.
+It is removed only after the encrypted output and manifest are durable; failures
+retain it and the progress file for retry. Place the working directory on
+appropriately protected storage and account for filesystem remnants when
+applying a secure-deletion policy.
+
 The loopback fixture in Rust tests implements this protocol and injects
 identity, replay, short-read, and disconnect faults. CLI tests also interrupt a
 multi-block backup, confirm that only verified blocks are resumed, and reject a

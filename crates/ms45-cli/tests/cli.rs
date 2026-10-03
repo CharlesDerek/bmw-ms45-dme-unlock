@@ -488,6 +488,105 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
 }
 
 #[test]
+fn backup_can_publish_only_operator_encrypted_output() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        for payload in [
+            b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(),
+            &[0x45; 16],
+            &[0x45; 16],
+        ] {
+            let mut request = [0u8; 22];
+            stream.read_exact(&mut request).unwrap();
+            respond(&mut stream, &request, payload);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("backup.enc");
+    let command_output = backup_command(address, &output, "16", "1.0.0")
+        .args([
+            "--encrypt-with",
+            "/usr/bin/tr",
+            "--encrypt-arg",
+            "E",
+            "--encrypt-arg",
+            "X",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        command_output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&command_output.stderr)
+    );
+    server.join().unwrap();
+
+    assert_eq!(std::fs::read(&output).unwrap(), vec![b'X'; 16]);
+    assert!(!output.with_file_name("backup.enc.partial").exists());
+    assert!(!output.with_file_name("backup.enc.progress.json").exists());
+    let receipt: serde_json::Value = serde_json::from_slice(&command_output.stdout).unwrap();
+    assert_eq!(receipt["encrypted"], true);
+    assert_eq!(
+        receipt["sha256"],
+        format!("{:x}", Sha256::digest([b'E'; 16]))
+    );
+    assert_eq!(
+        receipt["output_sha256"],
+        format!("{:x}", Sha256::digest([b'X'; 16]))
+    );
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output.with_file_name("backup.enc.manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["schema_version"], "ms45.backup-manifest.v2");
+    assert_eq!(manifest["binary"]["sha256"], receipt["output_sha256"]);
+    assert_eq!(manifest["plaintext"]["sha256"], receipt["sha256"]);
+    assert_eq!(
+        manifest["encryption"]["method"],
+        "external-command-stdin-stdout"
+    );
+    assert_eq!(manifest["encryption"]["command"], "/usr/bin/tr");
+}
+
+#[test]
+fn failed_encryption_retains_verified_plaintext_recovery_without_output() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        for payload in [
+            b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(),
+            &[0x45; 16],
+            &[0x45; 16],
+        ] {
+            let mut request = [0u8; 22];
+            stream.read_exact(&mut request).unwrap();
+            respond(&mut stream, &request, payload);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("backup.enc");
+    backup_command(address, &output, "16", "1.0.0")
+        .args(["--encrypt-with", "/bin/false"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "encryption command /bin/false failed",
+        ));
+    server.join().unwrap();
+
+    assert!(!output.exists());
+    assert!(!output.with_file_name("backup.enc.manifest.json").exists());
+    assert_eq!(
+        std::fs::read(output.with_file_name("backup.enc.partial")).unwrap(),
+        vec![0x45; 16]
+    );
+    assert!(output.with_file_name("backup.enc.progress.json").exists());
+}
+
+#[test]
 fn backup_refuses_to_overwrite_an_existing_output() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

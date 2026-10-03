@@ -1,6 +1,8 @@
+use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -12,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 const PROGRESS_SCHEMA: &str = "ms45.backup-progress.v2";
 const MANIFEST_SCHEMA: &str = "ms45.backup-manifest.v1";
+const ENCRYPTED_MANIFEST_SCHEMA: &str = "ms45.backup-manifest.v2";
 const PROTOCOL_VERSION: &str = "MS45R1";
 pub(crate) const ADAPTER_TIMEOUT: Duration = Duration::from_secs(3);
 pub(crate) const READ_PASSES: usize = 2;
@@ -25,6 +28,18 @@ pub(crate) struct BackupRequest<'a> {
     pub output: &'a Path,
     pub vin_sha256: &'a str,
     pub bridge_version: &'a str,
+    pub encryption: Option<&'a EncryptionCommand>,
+}
+
+pub(crate) struct EncryptionCommand {
+    pub program: PathBuf,
+    pub args: Vec<OsString>,
+}
+
+pub(crate) struct BackupOutcome {
+    pub plaintext_sha256: String,
+    pub output_sha256: String,
+    pub resumed_bytes: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,6 +57,15 @@ struct Progress {
     started_at: String,
     bridge_version: String,
     blocks: Vec<VerifiedBlock>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    encrypted_publication: Option<EncryptedPublication>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct EncryptedPublication {
+    length: usize,
+    sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -54,6 +78,10 @@ struct BackupManifest<'a> {
     bridge_version: &'a str,
     cli_version: &'static str,
     read_parameters: ReadParameters,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plaintext: Option<Plaintext<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encryption: Option<Encryption<'a>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -86,6 +114,18 @@ struct Binary<'a> {
 }
 
 #[derive(Debug, Serialize)]
+struct Plaintext<'a> {
+    length: usize,
+    sha256: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct Encryption<'a> {
+    method: &'static str,
+    command: &'a str,
+}
+
+#[derive(Debug, Serialize)]
 struct ReadParameters {
     protocol: &'static str,
     block_size: usize,
@@ -105,7 +145,7 @@ pub(crate) fn run(
     session: &mut ReadOnlyAdapter,
     identity: &Identity,
     request: BackupRequest<'_>,
-) -> Result<(String, usize)> {
+) -> Result<BackupOutcome> {
     let partial_path = sidecar(request.output, ".partial");
     let progress_path = sidecar(request.output, ".progress.json");
     let manifest_path = manifest_path(request.output);
@@ -124,26 +164,46 @@ pub(crate) fn run(
                 request.output.display()
             );
         }
-        if usize::try_from(std::fs::metadata(request.output)?.len())? != request.length {
-            bail!("finalized backup length does not match verified progress");
-        }
-        verify_partial(request.output, &progress)
-            .context("finalized backup does not match verified progress")?;
         if partial_path.exists() {
             verify_partial(&partial_path, &progress)
                 .context("recovery partial does not match verified progress")?;
         }
-        let digest = digest_file(request.output)?;
-        verify_second_pass(session, request, &digest)?;
+        let plaintext_digest = if request.encryption.is_some() {
+            let publication = progress
+                .encrypted_publication
+                .as_ref()
+                .context("encrypted backup output exists without verified publication metadata")?;
+            let output_len = usize::try_from(std::fs::metadata(request.output)?.len())?;
+            if output_len != publication.length
+                || digest_file(request.output)? != publication.sha256
+            {
+                bail!("encrypted backup output does not match verified publication metadata");
+            }
+            digest_file(&partial_path)?
+        } else {
+            if usize::try_from(std::fs::metadata(request.output)?.len())? != request.length {
+                bail!("finalized backup length does not match verified progress");
+            }
+            verify_partial(request.output, &progress)
+                .context("finalized backup does not match verified progress")?;
+            digest_file(request.output)?
+        };
+        verify_second_pass(session, request, &plaintext_digest)?;
+        let output_digest = digest_file(request.output)?;
         write_manifest(
             &manifest_path,
             identity,
             request,
             &progress.started_at,
-            &digest,
+            &plaintext_digest,
+            &output_digest,
         )?;
         cleanup_recovery_files(&partial_path, &progress_path)?;
-        return Ok((digest, request.length));
+        return Ok(BackupOutcome {
+            plaintext_sha256: plaintext_digest,
+            output_sha256: output_digest,
+            resumed_bytes: request.length,
+        });
     }
     if partial_path.exists() && !progress_path.exists() {
         bail!(
@@ -195,25 +255,92 @@ pub(crate) fn run(
 
     partial.sync_all()?;
     drop(partial);
-    let digest = digest_file(&partial_path)?;
-    verify_second_pass(session, request, &digest)?;
-    std::fs::hard_link(&partial_path, request.output).with_context(|| {
-        format!(
-            "failed to finalize {} as {}",
-            partial_path.display(),
-            request.output.display()
-        )
-    })?;
+    let plaintext_digest = digest_file(&partial_path)?;
+    verify_second_pass(session, request, &plaintext_digest)?;
+    let output_digest = if let Some(encryption) = request.encryption {
+        publish_encrypted(
+            &partial_path,
+            request.output,
+            encryption,
+            &progress_path,
+            &mut progress,
+        )?
+    } else {
+        std::fs::hard_link(&partial_path, request.output).with_context(|| {
+            format!(
+                "failed to finalize {} as {}",
+                partial_path.display(),
+                request.output.display()
+            )
+        })?;
+        plaintext_digest.clone()
+    };
     sync_parent(request.output)?;
     write_manifest(
         &manifest_path,
         identity,
         request,
         &progress.started_at,
-        &digest,
+        &plaintext_digest,
+        &output_digest,
     )?;
     cleanup_recovery_files(&partial_path, &progress_path)?;
-    Ok((digest, completed))
+    Ok(BackupOutcome {
+        plaintext_sha256: plaintext_digest,
+        output_sha256: output_digest,
+        resumed_bytes: completed,
+    })
+}
+
+fn publish_encrypted(
+    plaintext: &Path,
+    output: &Path,
+    encryption: &EncryptionCommand,
+    progress_path: &Path,
+    progress: &mut Progress,
+) -> Result<String> {
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let temporary = tempfile::NamedTempFile::new_in(parent)?;
+    let input = File::open(plaintext)?;
+    let stdout = temporary.reopen()?;
+    let status = Command::new(&encryption.program)
+        .args(&encryption.args)
+        .stdin(Stdio::from(input))
+        .stdout(Stdio::from(stdout))
+        .status()
+        .with_context(|| {
+            format!(
+                "failed to start encryption command {}",
+                encryption.program.display()
+            )
+        })?;
+    if !status.success() {
+        bail!(
+            "encryption command {} failed with {status}",
+            encryption.program.display()
+        );
+    }
+    temporary.as_file().sync_all()?;
+    let length = usize::try_from(temporary.as_file().metadata()?.len())?;
+    if length == 0 {
+        bail!("encryption command produced empty output");
+    }
+    let sha256 = digest_file(temporary.path())?;
+    progress.encrypted_publication = Some(EncryptedPublication {
+        length,
+        sha256: sha256.clone(),
+    });
+    persist_progress(progress_path, progress)?;
+    temporary
+        .persist_noclobber(output)
+        .map_err(|error| error.error)
+        .with_context(|| {
+            format!(
+                "failed to finalize encrypted backup as {}",
+                output.display()
+            )
+        })?;
+    Ok(sha256)
 }
 
 fn cleanup_recovery_files(partial_path: &Path, progress_path: &Path) -> Result<()> {
@@ -269,6 +396,7 @@ fn load_progress(path: &Path, identity: &Identity, request: BackupRequest<'_>) -
         started_at: now(),
         bridge_version: request.bridge_version.into(),
         blocks: Vec::new(),
+        encrypted_publication: None,
     };
     if !path.exists() {
         return Ok(expected);
@@ -380,7 +508,8 @@ fn write_manifest(
     identity: &Identity,
     request: BackupRequest<'_>,
     started_at: &str,
-    digest: &str,
+    plaintext_digest: &str,
+    output_digest: &str,
 ) -> Result<()> {
     let completed_at = now();
     let end_exclusive = request
@@ -394,7 +523,11 @@ fn write_manifest(
         .to_string_lossy()
         .into_owned();
     let manifest = BackupManifest {
-        schema_version: MANIFEST_SCHEMA,
+        schema_version: if request.encryption.is_some() {
+            ENCRYPTED_MANIFEST_SCHEMA
+        } else {
+            MANIFEST_SCHEMA
+        },
         ecu_identity_hashes: IdentityHashes {
             variant_sha256: hex_digest(identity.variant.as_bytes()),
             hardware_reference_sha256: hex_digest(identity.hardware_reference.as_bytes()),
@@ -413,8 +546,8 @@ fn write_manifest(
         },
         binary: Binary {
             file_name,
-            length: request.length,
-            sha256: digest,
+            length: usize::try_from(std::fs::metadata(request.output)?.len())?,
+            sha256: output_digest,
         },
         bridge_version: request.bridge_version,
         cli_version: env!("CARGO_PKG_VERSION"),
@@ -424,6 +557,14 @@ fn write_manifest(
             timeout_milliseconds: ADAPTER_TIMEOUT.as_millis() as u64,
             passes: READ_PASSES,
         },
+        plaintext: request.encryption.map(|_| Plaintext {
+            length: request.length,
+            sha256: plaintext_digest,
+        }),
+        encryption: request.encryption.map(|value| Encryption {
+            method: "external-command-stdin-stdout",
+            command: value.program.to_str().unwrap_or("<non-UTF-8 executable>"),
+        }),
     };
     persist_json(path, &manifest, false)
         .with_context(|| format!("failed to write backup manifest {}", path.display()))

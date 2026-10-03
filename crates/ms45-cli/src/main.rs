@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -91,6 +92,12 @@ enum Command {
         length: usize,
         #[arg(long)]
         output: PathBuf,
+        /// Executable that reads the verified backup on stdin and writes encrypted bytes to stdout.
+        #[arg(long)]
+        encrypt_with: Option<PathBuf>,
+        /// Argument passed verbatim to --encrypt-with (repeatable; no shell is used).
+        #[arg(long, requires = "encrypt_with", allow_hyphen_values = true)]
+        encrypt_arg: Vec<OsString>,
     },
     /// Correct checksums/signature and write the parameter payload used by Flash Tune.
     PrepareTune {
@@ -222,6 +229,8 @@ fn main() -> Result<()> {
             start,
             length,
             output,
+            encrypt_with,
+            encrypt_arg,
         } => {
             if !matches!(expected_variant.as_str(), "MS45.0" | "MS45.1") {
                 anyhow::bail!("unsupported expected variant");
@@ -257,7 +266,11 @@ fn main() -> Result<()> {
                 BackupRegion::External => "external",
                 BackupRegion::Mpc => "mpc",
             };
-            let (digest, resumed_bytes) = backup::run(
+            let encryption = encrypt_with.map(|program| backup::EncryptionCommand {
+                program,
+                args: encrypt_arg,
+            });
+            let outcome = backup::run(
                 &mut session,
                 &identity,
                 backup::BackupRequest {
@@ -268,11 +281,12 @@ fn main() -> Result<()> {
                     output: &output,
                     vin_sha256: &vin_hash,
                     bridge_version: &bridge_version,
+                    encryption: encryption.as_ref(),
                 },
             )?;
             println!(
                 "{}",
-                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":digest,"read_passes":backup::READ_PASSES,"resumed_bytes":resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
+                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":outcome.plaintext_sha256,"output_sha256":outcome.output_sha256,"encrypted":encryption.is_some(),"read_passes":backup::READ_PASSES,"resumed_bytes":outcome.resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
             );
         }
         Command::PrepareTune { input, output } => {

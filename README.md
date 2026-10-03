@@ -197,6 +197,25 @@ version printed by `scripts/ms45_read_bridge.py --version` to
 `--bridge-version`. The adapter wire format is
 documented in [read-only transport](docs/read-only-transport.md). This is an
 interface for a future Ediabas/PRG job bridge, not an observed hardware backup.
+
+To publish only an encrypted final backup, explicitly select an encryption
+program and pass each option separately:
+
+```bash
+cargo run -p ms45 -- backup [identity and range options] \
+  --output backup.bin.age --encrypt-with age \
+  --encrypt-arg=-r --encrypt-arg=RECIPIENT
+```
+
+The executable is run directly, never through a shell. It receives verified
+plaintext on stdin and must write an encrypted container to stdout. Configure
+credentials through the tool's key file, environment, token, or agent; do not
+put passphrases in arguments. Successful encrypted backups use a v2 manifest
+with separate plaintext and encrypted-output hashes. The resumable `.partial`
+file is plaintext until encrypted output and manifest publication succeed, so
+use protected working storage and handle filesystem remnants according to local
+policy. Encryption failures retain the recovery pair and publish no output.
+
 No CLI command grants security access, erases, writes, or resets an ECU.
 The [bench acceptance procedure](docs/bench-acceptance.md) defines full,
 repeatable MS45.0/MS45.1 reads, adapter and tool-version capture, and redacted

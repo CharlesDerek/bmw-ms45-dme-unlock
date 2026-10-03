@@ -64,6 +64,13 @@ Add this object to the bridge configuration shown in
    redacted checked-in receipt with only hashes and non-identifying hardware
    details. Set a variant to `passed` only after both full ranges repeat exactly.
    Keep raw backups offline and access-controlled.
+9. If encrypted publication will be used, test the exact `--encrypt-with` and
+   `--encrypt-arg` configuration against a non-sensitive fixture before attaching
+   hardware. Decrypt the result with the production key setup, require its hash
+   to match the receipt's plaintext `sha256`, and require the encrypted file hash
+   to match both `output_sha256` and the v2 manifest's `binary.sha256`. Confirm no
+   plaintext final output remains. Record the encryption tool and version in the
+   private test log; never record credentials or unredacted key identifiers.
 
 Acceptance is complete only when both variants are `passed`. This procedure
 does not authorize security access, erase, write, or reset.
