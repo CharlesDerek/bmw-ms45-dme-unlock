@@ -43,6 +43,10 @@ Implemented:
   sanitized MS45.0/MS45.1 software, hardware-revision, and pairing structures,
   plus metadata mismatch and overlap rejection, exercised by the Rust test
   suite. See [the fixture notes](fixtures/compatibility/README.md).
+* Versioned Ed25519-signed flash-plan artifacts that bind an approved ECU
+  identity to payload hashes, address ranges, block size, signature target,
+  and the exact intended operation sequence. See
+  [signed flash plans](docs/signed-flash-plans.md).
 * A loopback-only read-only EdiabasTest job bridge that can serve the backup
   CLI after its PRG job/result mapping is independently validated on hardware.
 

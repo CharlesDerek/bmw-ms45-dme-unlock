@@ -12,6 +12,7 @@ use ms45_core::{
 use sha2::{Digest, Sha256};
 
 mod backup;
+mod flash_plan_artifact;
 
 #[derive(Debug, Parser)]
 #[command(name = "ms45", version)]
@@ -23,6 +24,37 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Create a signed, payload-hash-bound flash approval plan.
+    CreateFlashPlan {
+        #[arg(long)]
+        expected_variant: String,
+        #[arg(long)]
+        expected_hw_ref: String,
+        #[arg(long)]
+        expected_sw_ref: String,
+        #[arg(long)]
+        expected_vin_sha256: String,
+        /// Segment in REGION:START:FILE form; REGION is external or mpc.
+        #[arg(long = "segment", required = true)]
+        segments: Vec<String>,
+        #[arg(long, default_value_t = 4096)]
+        block_size: usize,
+        #[arg(long, value_enum)]
+        signature_target: SignatureTarget,
+        /// File containing a 32-byte Ed25519 seed encoded as 64 hex digits.
+        #[arg(long)]
+        signing_key: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify an offline signed flash approval plan.
+    VerifyFlashPlan {
+        #[arg(long)]
+        input: PathBuf,
+        /// Approved Ed25519 public key encoded as 64 hex digits.
+        #[arg(long)]
+        expected_public_key: String,
+    },
     /// Report read-only ECU identity and status metadata.
     Probe {
         #[arg(long)]
@@ -102,10 +134,56 @@ enum BackupRegion {
     Mpc,
 }
 
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SignatureTarget {
+    Parameter,
+    Program,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::CreateFlashPlan {
+            expected_variant,
+            expected_hw_ref,
+            expected_sw_ref,
+            expected_vin_sha256,
+            segments,
+            block_size,
+            signature_target,
+            signing_key,
+            output,
+        } => {
+            let artifact = flash_plan_artifact::create(flash_plan_artifact::CreateRequest {
+                variant: &expected_variant,
+                hardware_reference: &expected_hw_ref,
+                software_reference: &expected_sw_ref,
+                vin_sha256: &expected_vin_sha256,
+                segment_specs: &segments,
+                block_size,
+                signature_target: match signature_target {
+                    SignatureTarget::Parameter => "parameter",
+                    SignatureTarget::Program => "program",
+                },
+                signing_key: &signing_key,
+            })?;
+            flash_plan_artifact::write(&output, &artifact)?;
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":"ms45.flash-plan-created.v1","status":"signed","output":output,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key})
+            );
+        }
+        Command::VerifyFlashPlan {
+            input,
+            expected_public_key,
+        } => {
+            let artifact = flash_plan_artifact::read_and_verify(&input, &expected_public_key)?;
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":"ms45.flash-plan-verified.v1","status":"verified","input":input,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key})
+            );
+        }
         Command::Probe { adapter } => {
             let mut session = ReadOnlyAdapter::connect(adapter, backup::ADAPTER_TIMEOUT)?;
             let report = session.probe()?;

@@ -8,6 +8,7 @@ license.workspace = true
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
+ed25519-dalek = "2"
 ms45-core = { path = "../ms45-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

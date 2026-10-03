@@ -166,6 +166,154 @@ fn validate_reports_tune_reference_match() {
 }
 
 #[test]
+fn creates_and_verifies_a_signed_flash_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload.bin");
+    let key = dir.path().join("signing-key.hex");
+    let plan = dir.path().join("flash-plan.json");
+    std::fs::write(&payload, [0x45, 0x46, 0x47, 0x48]).unwrap();
+    std::fs::write(
+        &key,
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f\n",
+    )
+    .unwrap();
+    let vin_hash = format!("{:x}", Sha256::digest(b"TESTVIN"));
+    let segment = format!("external:0x100:{}", payload.display());
+    let output = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "create-flash-plan",
+            "--expected-variant",
+            "MS45.1",
+            "--expected-hw-ref",
+            "0044570",
+            "--expected-sw-ref",
+            "7561520",
+            "--expected-vin-sha256",
+            &vin_hash,
+            "--segment",
+            &segment,
+            "--block-size",
+            "1024",
+            "--signature-target",
+            "parameter",
+            "--signing-key",
+            key.to_str().unwrap(),
+            "--output",
+            plan.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let artifact: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&plan).unwrap()).unwrap();
+    assert_eq!(artifact["schema_version"], "ms45.flash-plan.v1");
+    assert_eq!(artifact["plan"]["approved_identity"]["variant"], "MS45.1");
+    assert_eq!(
+        artifact["plan"]["approved_identity"]["vin_sha256"],
+        vin_hash
+    );
+    assert_eq!(artifact["plan"]["block_size"], 1024);
+    assert_eq!(artifact["plan"]["segments"][0]["start"], 256);
+    assert_eq!(artifact["plan"]["segments"][0]["end_exclusive"], 260);
+    assert_eq!(
+        artifact["plan"]["segments"][0]["sha256"],
+        format!("{:x}", Sha256::digest([0x45, 0x46, 0x47, 0x48]))
+    );
+    assert_eq!(artifact["plan"]["intended_operations"][0], "identify");
+    let public_key = artifact["signing"]["public_key"].as_str().unwrap();
+    assert_eq!(public_key.len(), 64);
+
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "verify-flash-plan",
+            "--input",
+            plan.to_str().unwrap(),
+            "--expected-public-key",
+            public_key,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"status\":\"verified\""));
+}
+
+#[test]
+fn flash_plan_verification_rejects_tampering_and_unapproved_signers() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload.bin");
+    let key = dir.path().join("signing-key.hex");
+    let plan = dir.path().join("flash-plan.json");
+    std::fs::write(&payload, [0x45; 16]).unwrap();
+    std::fs::write(
+        &key,
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    )
+    .unwrap();
+    let segment = format!("external:0:{}", payload.display());
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "create-flash-plan",
+            "--expected-variant",
+            "MS45.0",
+            "--expected-hw-ref",
+            "HW1",
+            "--expected-sw-ref",
+            "SW1",
+            "--expected-vin-sha256",
+            &"ab".repeat(32),
+            "--segment",
+            &segment,
+            "--signature-target",
+            "program",
+            "--signing-key",
+            key.to_str().unwrap(),
+            "--output",
+            plan.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+    let mut artifact: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&plan).unwrap()).unwrap();
+    let public_key = artifact["signing"]["public_key"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    artifact["plan"]["segments"][0]["sha256"] = serde_json::Value::String("cd".repeat(32));
+    std::fs::write(&plan, serde_json::to_vec_pretty(&artifact).unwrap()).unwrap();
+
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "verify-flash-plan",
+            "--input",
+            plan.to_str().unwrap(),
+            "--expected-public-key",
+            &public_key,
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("signature verification failed"));
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "verify-flash-plan",
+            "--input",
+            plan.to_str().unwrap(),
+            "--expected-public-key",
+            &"00".repeat(32),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("signer does not match"));
+}
+
+#[test]
 fn backup_pins_identity_and_verifies_saved_bytes() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
