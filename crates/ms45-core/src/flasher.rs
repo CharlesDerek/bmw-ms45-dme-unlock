@@ -44,6 +44,8 @@ pub enum FlashError {
     InvalidPlan(String),
     #[error("connected DME identity does not match the approved flash plan: {0}")]
     IdentityMismatch(String),
+    #[error("connected DME programming state {0} is not supported; expected normal operation (1)")]
+    ProgrammingState(String),
     #[error("flash readback differs from approved payload at address {address:#x}")]
     ReadbackMismatch { address: u32 },
 }
@@ -158,6 +160,11 @@ impl FlashPlan {
         progress: &mut dyn FnMut(FlashProgress),
     ) -> Result<FlashReceipt, FlashError> {
         let identity = backend.identify()?;
+        if identity.programming_status != "1" {
+            return Err(FlashError::ProgrammingState(
+                identity.programming_status.clone(),
+            ));
+        }
         if identity.hardware_reference != self.expected_hardware_reference {
             return Err(FlashError::IdentityMismatch(format!(
                 "hardware reference expected {}, found {}",
@@ -291,6 +298,7 @@ mod tests {
         operations: Vec<String>,
         fail_write_at: Option<u32>,
         corrupt_read_at: Option<u32>,
+        programming_status: Option<String>,
         memory: BTreeMap<u32, u8>,
     }
 
@@ -301,7 +309,10 @@ mod tests {
                 vin: "TESTVIN".into(),
                 hardware_reference: "HW-45".into(),
                 software_reference: "SW-1".into(),
-                programming_status: "ready".into(),
+                programming_status: self
+                    .programming_status
+                    .clone()
+                    .unwrap_or_else(|| "1".into()),
                 diag_protocol: "test".into(),
             })
         }
@@ -445,6 +456,19 @@ mod tests {
         assert!(matches!(
             mismatched.execute(&mut backend, &mut |_| {}),
             Err(FlashError::IdentityMismatch(_))
+        ));
+        assert_eq!(backend.operations, vec!["identify"]);
+    }
+
+    #[test]
+    fn unexpected_programming_state_prevents_unlock_and_erase() {
+        let mut backend = RecordingBackend {
+            programming_status: Some("7".into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            plan().execute(&mut backend, &mut |_| {}),
+            Err(FlashError::ProgrammingState(state)) if state == "7"
         ));
         assert_eq!(backend.operations, vec!["identify"]);
     }

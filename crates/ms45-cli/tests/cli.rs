@@ -71,7 +71,7 @@ fn probe_reports_hashed_metadata_without_requesting_memory() {
         respond(
             &mut stream,
             &request,
-            b"MS45.1|0044570|7561520|programmed|BMW-FAST|TESTVIN",
+            b"MS45.1|0044570|7561520|1|BMW-FAST|TESTVIN",
         );
         stream
             .set_read_timeout(Some(std::time::Duration::from_millis(200)))
@@ -93,7 +93,7 @@ fn probe_reports_hashed_metadata_without_requesting_memory() {
     assert_eq!(report["variant"], "MS45.1");
     assert_eq!(report["hardware_reference"], "0044570");
     assert_eq!(report["software_reference"], "7561520");
-    assert_eq!(report["programming_status"], "programmed");
+    assert_eq!(report["programming_status"], "1");
     assert_eq!(report["diagnostic_protocol"], "BMW-FAST");
     assert_eq!(
         report["vin_sha256"],
@@ -172,7 +172,7 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         for payload in [
-            b"MS45.1|HW1|SW1|TESTVIN".as_slice(),
+            b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(),
             &[0x45; 16],
             &[0x45; 16],
         ] {
@@ -248,6 +248,31 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
 }
 
 #[test]
+fn backup_rejects_unsafe_programming_state_before_reading_memory() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 22];
+        stream.read_exact(&mut request).unwrap();
+        assert_eq!(request[14], 3);
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|7|BMW-FAST|TESTVIN");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(200)))
+            .unwrap();
+        assert_eq!(stream.read(&mut [0u8; 1]).unwrap_or(0), 0);
+    });
+    let dir = tempfile::tempdir().unwrap();
+    backup_command(address, &dir.path().join("backup.bin"), "16", "1.2.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "programming state 7 is not supported",
+        ));
+    server.join().unwrap();
+}
+
+#[test]
 fn backup_resumes_only_verified_blocks_after_disconnect() {
     let first_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let first_address = first_listener.local_addr().unwrap();
@@ -255,7 +280,7 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
         let (mut stream, _) = first_listener.accept().unwrap();
         let mut request = [0u8; 22];
         stream.read_exact(&mut request).unwrap();
-        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
         stream.read_exact(&mut request).unwrap();
         assert_eq!(u32::from_be_bytes(request[16..20].try_into().unwrap()), 0);
         respond(&mut stream, &request, &[0x45; 4096]);
@@ -288,12 +313,12 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
         let (mut stream, _) = second_listener.accept().unwrap();
         let mut request = [0u8; 22];
         stream.read_exact(&mut request).unwrap();
-        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
         drop(stream);
 
         let (mut stream, _) = second_listener.accept().unwrap();
         stream.read_exact(&mut request).unwrap();
-        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
         stream.read_exact(&mut request).unwrap();
         assert_eq!(
             u32::from_be_bytes(request[16..20].try_into().unwrap()),
@@ -346,7 +371,7 @@ fn backup_rejects_mismatched_independent_read_passes() {
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
         for payload in [
-            b"MS45.1|HW1|SW1|TESTVIN".as_slice(),
+            b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(),
             &[0x45; 16],
             &[0x46; 16],
         ] {
@@ -378,7 +403,7 @@ fn backup_rejects_corrupted_verified_progress() {
         let (mut stream, _) = listener.accept().unwrap();
         let mut request = [0u8; 22];
         stream.read_exact(&mut request).unwrap();
-        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
         stream.read_exact(&mut request).unwrap();
         respond(&mut stream, &request, &[0x45; 4096]);
         stream.read_exact(&mut request).unwrap();
@@ -400,7 +425,7 @@ fn backup_rejects_corrupted_verified_progress() {
         let (mut stream, _) = retry_listener.accept().unwrap();
         let mut request = [0u8; 22];
         stream.read_exact(&mut request).unwrap();
-        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
     });
     backup_command(retry_address, &output, "5000", "1.0.0")
         .assert()

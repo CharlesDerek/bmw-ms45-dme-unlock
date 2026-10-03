@@ -11,6 +11,8 @@ pub enum EcuError {
     Diagnostic(#[from] DiagnosticError),
     #[error("ECU identity or variant rejected")]
     Identity,
+    #[error("ECU programming state {0} is not supported; expected normal operation (1)")]
+    ProgrammingState(String),
     #[error("ECU response was malformed")]
     Malformed,
     #[error("address range rejected")]
@@ -23,6 +25,8 @@ pub struct EcuIdentity {
     pub hardware_reference: String,
     pub software_reference: String,
     pub vin: String,
+    pub programming_status: String,
+    pub diagnostic_protocol: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,28 +54,17 @@ impl<J> EcuOperations<J> {
 
 impl<J: DiagnosticJobs> EcuOperations<J> {
     pub fn identify(&mut self) -> Result<EcuIdentity, EcuError> {
-        let bytes = self.jobs.identify()?;
-        let text = std::str::from_utf8(&bytes).map_err(|_| EcuError::Malformed)?;
-        let fields = text.split('|').collect::<Vec<_>>();
-        if fields.len() != 4
-            || fields.iter().any(|field| {
-                field.is_empty()
-                    || field.len() > 64
-                    || !field
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'.')
-            })
-        {
-            return Err(EcuError::Malformed);
-        }
-        if !matches!(fields[0], "MS45.0" | "MS45.1") {
-            return Err(EcuError::Identity);
+        let probe = self.probe()?;
+        if probe.programming_status != "1" {
+            return Err(EcuError::ProgrammingState(probe.programming_status));
         }
         Ok(EcuIdentity {
-            variant: fields[0].into(),
-            hardware_reference: fields[1].into(),
-            software_reference: fields[2].into(),
-            vin: fields[3].into(),
+            variant: probe.variant,
+            hardware_reference: probe.hardware_reference,
+            software_reference: probe.software_reference,
+            vin: probe.vin,
+            programming_status: probe.programming_status,
+            diagnostic_protocol: probe.diagnostic_protocol,
         })
     }
 
@@ -137,8 +130,8 @@ impl<J: DiagnosticJobs> FlashBackend for EcuOperations<J> {
             vin: identity.vin,
             hardware_reference: identity.hardware_reference,
             software_reference: identity.software_reference,
-            programming_status: "reported-by-diagnostic-jobs".into(),
-            diag_protocol: identity.variant,
+            programming_status: identity.programming_status,
+            diag_protocol: identity.diagnostic_protocol,
         })
     }
 
@@ -247,13 +240,15 @@ mod tests {
     #[test]
     fn shared_operations_validate_jobs_and_ranges() {
         let jobs = Jobs {
-            identity: b"MS45.1|HW1|SW1|TESTVIN".to_vec(),
-            probe: b"MS45.1|HW1|SW1|programmed|BMW-FAST|TESTVIN".to_vec(),
+            identity: b"unused".to_vec(),
+            probe: b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".to_vec(),
             reads: [vec![0x45; 4]].into(),
             calls: 0,
         };
         let mut ecu = EcuOperations::new(jobs);
-        assert_eq!(ecu.identify().unwrap().variant, "MS45.1");
+        let identity = ecu.identify().unwrap();
+        assert_eq!(identity.variant, "MS45.1");
+        assert_eq!(identity.programming_status, "1");
         assert_eq!(ecu.probe().unwrap().diagnostic_protocol, "BMW-FAST");
         assert_eq!(
             ecu.read(MemoryRegion::ExternalFlash, 0, 4).unwrap(),
@@ -269,8 +264,8 @@ mod tests {
     #[test]
     fn shared_operations_reject_bad_identity_and_short_result() {
         let jobs = Jobs {
-            identity: b"MS44|HW1|SW1|TESTVIN".to_vec(),
-            probe: Vec::new(),
+            identity: Vec::new(),
+            probe: b"MS44|HW1|SW1|1|BMW-FAST|TESTVIN".to_vec(),
             reads: VecDeque::new(),
             calls: 0,
         };
@@ -285,6 +280,22 @@ mod tests {
             EcuOperations::new(jobs).read(MemoryRegion::ExternalFlash, 0, 4),
             Err(EcuError::Malformed)
         );
+    }
+
+    #[test]
+    fn identification_rejects_non_normal_programming_states() {
+        for status in ["0", "3", "5", "7", "12", "255", "programmed"] {
+            let jobs = Jobs {
+                identity: Vec::new(),
+                probe: format!("MS45.1|HW1|SW1|{status}|BMW-FAST|TESTVIN").into_bytes(),
+                reads: VecDeque::new(),
+                calls: 0,
+            };
+            assert_eq!(
+                EcuOperations::new(jobs).identify(),
+                Err(EcuError::ProgrammingState(status.into()))
+            );
+        }
     }
 
     #[test]

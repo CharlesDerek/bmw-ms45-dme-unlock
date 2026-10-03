@@ -11,7 +11,7 @@ fn identity() -> DmeIdentity {
         vin: "SIMULATEDVIN".into(),
         hardware_reference: "HW-45".into(),
         software_reference: "SW-1".into(),
-        programming_status: "bench-ready".into(),
+        programming_status: "1".into(),
         diag_protocol: "simulated".into(),
     }
 }

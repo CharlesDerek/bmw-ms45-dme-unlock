@@ -49,13 +49,24 @@ class BridgeTests(unittest.TestCase):
             calls.append(job)
             return {
                 "identifikation": {"VARIANTE": "MS45.1", "HW_REF": "HW1", "SW_REF": "SW1", "VIN": "TESTVIN"},
-                "program_status": {"PROGRAM_STATUS": "programmed"},
+                "program_status": {"PROGRAM_STATUS": "1"},
                 "diag_protocol": {"DIAG_PROTOCOL": "BMW-FAST"},
             }[job]
         with patch.object(bridge, "run_job", side_effect=fake_job):
             result = bridge.execute(CONFIG, 3, 0, 0, 0)
-        self.assertEqual(result, (0, b"MS45.1|HW1|SW1|programmed|BMW-FAST|TESTVIN"))
+        self.assertEqual(result, (0, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN"))
         self.assertEqual(calls, ["identifikation", "program_status", "diag_protocol"])
+
+    def test_probe_rejects_malformed_programming_status(self):
+        def fake_job(_config, job, _arguments, _requested):
+            return {
+                "identifikation": {"VARIANTE": "MS45.1", "HW_REF": "HW1", "SW_REF": "SW1", "VIN": "TESTVIN"},
+                "program_status": {"PROGRAM_STATUS": "normal"},
+                "diag_protocol": {"DIAG_PROTOCOL": "BMW-FAST"},
+            }[job]
+        with patch.object(bridge, "run_job", side_effect=fake_job):
+            with self.assertRaisesRegex(ValueError, "invalid ECU programming status"):
+                bridge.execute(CONFIG, 3, 0, 0, 0)
 
     def test_rejects_write_and_bad_ranges_without_invoking_job(self):
         with patch.object(bridge, "run_job") as job:

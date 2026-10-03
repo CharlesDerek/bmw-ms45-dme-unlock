@@ -14,7 +14,7 @@ from pathlib import Path
 
 MAGIC = b"MS45R1"
 MAX_READ = 4096
-BRIDGE_VERSION = "1.1.0"
+BRIDGE_VERSION = "1.2.0"
 LABEL = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 HEX = re.compile(r"^(?:[0-9A-Fa-f]{2}(?: |$))+$")
 
@@ -139,7 +139,7 @@ def execute(config, operation, region, start, length):
         if operation == 1:
             return 0, "|".join((variant, hw, sw, vin)).encode("ascii")
         if config.get("profile") == "legacy-ms45":
-            programming_status = run_job(config, "flash_programmier_status_lesen", "", "FLASH_PROGRAMMIER_STATUS_TEXT;JOB_STATUS")["FLASH_PROGRAMMIER_STATUS_TEXT"]
+            programming_status = run_job(config, "flash_programmier_status_lesen", "", "FLASH_PROGRAMMIER_STATUS;JOB_STATUS")["FLASH_PROGRAMMIER_STATUS"]
             diagnostic_protocol = run_job(config, "DIAGNOSEPROTOKOLL_LESEN", "", "DIAG_PROT_IST;JOB_STATUS")["DIAG_PROT_IST"]
         else:
             probe = config.get("probe")
@@ -148,6 +148,8 @@ def execute(config, operation, region, start, length):
             programming_status = run_job(config, probe["programming_status_job"], "", probe["programming_status_result"] + ";JOB_STATUS")[probe["programming_status_result"]]
             diagnostic_protocol = run_job(config, probe["diagnostic_protocol_job"], "", probe["diagnostic_protocol_result"] + ";JOB_STATUS")[probe["diagnostic_protocol_result"]]
         values = (variant, hw, sw, programming_status, diagnostic_protocol, vin)
+        if not programming_status.isascii() or not programming_status.isdecimal() or not 0 <= int(programming_status) <= 255:
+            raise ValueError("invalid ECU programming status")
         if not all(isinstance(value, str) and value == value.strip() and 1 <= len(value) <= 128 and "|" not in value and value.isascii() and value.isprintable() for value in values):
             raise ValueError("invalid ECU probe result")
         return 0, "|".join(values).encode("ascii")

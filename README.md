@@ -34,7 +34,8 @@ Implemented:
   sleeping or claiming physical-hardware coverage. See
   [bench simulator](docs/bench-simulator.md).
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
-  identity parsing, a metadata-only hardware probe, bounded reads, and a
+  identity parsing, fail-closed normal programming-state validation, a
+  metadata-only hardware probe, bounded reads, and a
   verified, resumable backup CLI. Its
   tests exercise wrong variants, stale responses, short reads, disconnects,
   interrupted backup recovery, and tampered progress.
@@ -139,6 +140,9 @@ cargo run -p ms45 -- probe --adapter 127.0.0.1:4581
 The command prints `ms45.hardware-probe.v1` JSON containing the variant,
 hardware and software references, programming status, diagnostic protocol,
 and SHA-256 of the VIN. It never prints the VIN itself.
+Programming status is the numeric BMW job result; only state `1` (normal
+operation) is accepted when identifying an ECU for backup or future flashing.
+The probe command still reports other well-formed states to aid diagnosis.
 
 Read a bounded region through an independently implemented read-only adapter:
 

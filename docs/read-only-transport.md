@@ -24,6 +24,10 @@ same nonce (8), status (1), big-endian payload length (2), then payload. Status
 
 Probe payload is ASCII
 `variant|hardware_reference|software_reference|programming_status|diagnostic_protocol|VIN`.
+`programming_status` is the decimal `FLASH_PROGRAMMIER_STATUS` value, not its
+localized display text. ECU identification uses this probe payload and accepts
+only state `1` (normal operation); every other, malformed, or unknown state is
+rejected before a memory read or future security-access request.
 The CLI emits `ms45.hardware-probe.v1` JSON with a SHA-256 VIN hash instead of
 the raw VIN. The loopback bridge serves it with identification/status jobs
 only; it does not call the memory-read job, and MS45R1 defines no
@@ -71,7 +75,8 @@ implementing the actual MS45.0/MS45.1 diagnostic jobs and bench verification of
 the address map, identity mapping, resume behavior, and backup contents.
 The probe's remaining external gate is to run it against both MS45.0 and MS45.1
 hardware, compare every reported field with an independent diagnostic tool,
-and capture bridge logs showing that no memory-read or security-access job ran.
+confirm both report programming state `1` in normal operation, and capture
+bridge logs showing that no memory-read or security-access job ran.
 
 ## EdiabasTest bridge
 
