@@ -65,16 +65,34 @@ fn hash_parameter_segments(
     let mut hasher = Md5::new();
 
     for i in 0..count {
-        let start = read_be_u32(bin, segment_number_offset + 4 + (i * 8))?
+        let entry = segment_number_offset
+            .checked_add(4)
+            .and_then(|offset| i.checked_mul(8).and_then(|delta| offset.checked_add(delta)))
+            .ok_or(BinaryError::OutOfRange {
+                offset: segment_number_offset,
+                len: bin.len(),
+            })?;
+        let length_offset = segment_length_offset
+            .checked_add(i.checked_mul(4).ok_or(BinaryError::OutOfRange {
+                offset: segment_length_offset,
+                len: bin.len(),
+            })?)
+            .ok_or(BinaryError::OutOfRange {
+                offset: segment_length_offset,
+                len: bin.len(),
+            })?;
+        let start = read_be_u32(bin, entry)?
             .checked_sub(0xfff4_0000)
             .ok_or(BinaryError::InvalidAddress)? as usize;
-        let length = read_be_u32(bin, segment_length_offset + (i * 4))? as usize;
-        let segment = bin
-            .get(start..start + length)
-            .ok_or(BinaryError::OutOfRange {
-                offset: start,
-                len: length,
-            })?;
+        let length = read_be_u32(bin, length_offset)? as usize;
+        let end = start.checked_add(length).ok_or(BinaryError::OutOfRange {
+            offset: start,
+            len: length,
+        })?;
+        let segment = bin.get(start..end).ok_or(BinaryError::OutOfRange {
+            offset: start,
+            len: length,
+        })?;
         hasher.update(segment);
     }
 
@@ -91,8 +109,24 @@ fn hash_program_segments(
     let mut hasher = Md5::new();
 
     for i in 0..count {
-        let start = read_be_u32(flash, segment_number_offset + 4 + (i * 8))?;
-        let length = read_be_u32(flash, segment_length_offset + (i * 4))?;
+        let entry = segment_number_offset
+            .checked_add(4)
+            .and_then(|offset| i.checked_mul(8).and_then(|delta| offset.checked_add(delta)))
+            .ok_or(BinaryError::OutOfRange {
+                offset: segment_number_offset,
+                len: flash.len(),
+            })?;
+        let length_offset = segment_length_offset
+            .checked_add(i.checked_mul(4).ok_or(BinaryError::OutOfRange {
+                offset: segment_length_offset,
+                len: flash.len(),
+            })?)
+            .ok_or(BinaryError::OutOfRange {
+                offset: segment_length_offset,
+                len: flash.len(),
+            })?;
+        let start = read_be_u32(flash, entry)?;
+        let length = read_be_u32(flash, length_offset)?;
         let end = start
             .checked_add(length)
             .and_then(|value| value.checked_sub(1))
@@ -127,6 +161,7 @@ fn reorder_words_be_to_le(input: &[u8], output_len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn security_access_message_shape_matches_ediabas_payload() {
@@ -136,5 +171,43 @@ mod tests {
         assert_eq!(msg[0], 1);
         assert_eq!(msg[24], 0x10);
         assert_eq!(msg[89], 3);
+    }
+
+    #[test]
+    fn parameter_signatures_are_deterministic_and_cover_described_bytes() {
+        let mut first = vec![0; crate::TUNE_LEN];
+        first[0x130..0x134].copy_from_slice(&1_u32.to_be_bytes());
+        first[0x134..0x138].copy_from_slice(&0xfff4_0000_u32.to_be_bytes());
+        first[0x144..0x148].copy_from_slice(&16_u32.to_be_bytes());
+        first[..16].copy_from_slice(b"signed parameter");
+        let mut identical = first.clone();
+        let mut changed = first.clone();
+        changed[0] ^= 1;
+
+        sign_ms45_parameters(&mut first).unwrap();
+        sign_ms45_parameters(&mut identical).unwrap();
+        sign_ms45_parameters(&mut changed).unwrap();
+
+        assert_eq!(&first[0x174..0x1b4], &identical[0x174..0x1b4]);
+        assert_ne!(&first[0x174..0x1b4], &changed[0x174..0x1b4]);
+    }
+
+    proptest! {
+        #[test]
+        fn word_reordering_preserves_each_complete_word(input in proptest::collection::vec(any::<u8>(), 0..=64)) {
+            let output = reorder_words_be_to_le(&input, 64);
+            let mut padded = input;
+            padded.resize(64, 0);
+            for index in 0..16 {
+                let start = index * 4;
+                prop_assert_eq!(&output[start..start + 4], padded[start..start + 4].iter().rev().copied().collect::<Vec<_>>());
+            }
+        }
+
+        #[test]
+        fn malformed_parameter_signature_descriptors_are_rejected(mut tune in proptest::collection::vec(any::<u8>(), crate::TUNE_LEN..=crate::TUNE_LEN)) {
+            tune[0x130..0x134].copy_from_slice(&u32::MAX.to_be_bytes());
+            prop_assert!(sign_ms45_parameters(&mut tune).is_err());
+        }
     }
 }

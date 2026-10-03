@@ -156,8 +156,11 @@ fn validate_mpc_len(input: &[u8]) -> Result<(), BinaryError> {
 }
 
 fn ascii_field(buf: &[u8], offset: usize, len: usize) -> Result<&str, BinaryError> {
+    let end = offset
+        .checked_add(len)
+        .ok_or(BinaryError::OutOfRange { offset, len })?;
     let bytes = buf
-        .get(offset..offset + len)
+        .get(offset..end)
         .ok_or(BinaryError::OutOfRange { offset, len })?;
     std::str::from_utf8(bytes).map_err(|_| BinaryError::InvalidAsciiMetadata)
 }
@@ -165,6 +168,7 @@ fn ascii_field(buf: &[u8], offset: usize, len: usize) -> Result<&str, BinaryErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn validates_flash_mpc_pair_metadata() {
@@ -236,5 +240,33 @@ mod tests {
     fn rejects_bad_tune_length() {
         let err = prepare_tune(&[0xaa; 16]).unwrap_err();
         assert!(matches!(err, BinaryError::InvalidTuneLength { .. }));
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn numeric_parameter_metadata_matches_only_complete_tokens(reference in 0u32..1_000_000_000, prefix in "[A-Za-z]{0,8}", suffix in "[A-Za-z]{0,8}") {
+            let reference = reference.to_string();
+            let mut tune = vec![0; TUNE_LEN];
+            tune[0x10..0x10 + reference.len()].copy_from_slice(reference.as_bytes());
+            let ecu_reference = format!("{prefix} {reference} {suffix}");
+            prop_assert!(verify_parameter_match(&tune, &ecu_reference).unwrap());
+            let longer_reference = format!("{prefix} 1{reference} {suffix}");
+            prop_assert!(!verify_parameter_match(&tune, &longer_reference).unwrap());
+        }
+
+        #[test]
+        fn arbitrary_metadata_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..0x60400)) {
+            let _ = verify_parameter_match(&bytes, "1234567");
+            let _ = verify_program_match(&bytes, "1234567");
+            let _ = verify_flash_mpc_match(&bytes, &bytes);
+        }
+
+        #[test]
+        fn malformed_tune_descriptors_fail_without_panicking(mut tune in proptest::collection::vec(any::<u8>(), TUNE_LEN..=TUNE_LEN)) {
+            tune[0x104..0x108].copy_from_slice(&u32::MAX.to_be_bytes());
+            prop_assert!(prepare_tune(&tune).is_err());
+        }
     }
 }

@@ -1,8 +1,11 @@
 use crate::binary::{BinaryError, EXTERNAL_FLASH_BASE};
 
 pub(crate) fn read_be_u32(buf: &[u8], offset: usize) -> Result<u32, BinaryError> {
+    let end = offset
+        .checked_add(4)
+        .ok_or(BinaryError::OutOfRange { offset, len: 4 })?;
     let bytes = buf
-        .get(offset..offset + 4)
+        .get(offset..end)
         .ok_or(BinaryError::OutOfRange { offset, len: 4 })?;
     Ok(u32::from_be_bytes(
         bytes.try_into().expect("slice length checked"),
@@ -10,8 +13,11 @@ pub(crate) fn read_be_u32(buf: &[u8], offset: usize) -> Result<u32, BinaryError>
 }
 
 pub(crate) fn write_be_u32(buf: &mut [u8], offset: usize, value: u32) -> Result<(), BinaryError> {
+    let end = offset
+        .checked_add(4)
+        .ok_or(BinaryError::OutOfRange { offset, len: 4 })?;
     let dst = buf
-        .get_mut(offset..offset + 4)
+        .get_mut(offset..end)
         .ok_or(BinaryError::OutOfRange { offset, len: 4 })?;
     dst.copy_from_slice(&value.to_be_bytes());
     Ok(())
@@ -50,10 +56,21 @@ fn checksum_segments(
     let mut checksum = initial;
 
     for i in 0..count {
-        let start = read_be_u32(binary, descriptor_offset + 4 + (8 * i))?
+        let entry = descriptor_offset
+            .checked_add(4)
+            .and_then(|offset| i.checked_mul(8).and_then(|delta| offset.checked_add(delta)))
+            .ok_or(BinaryError::OutOfRange {
+                offset: descriptor_offset,
+                len: binary.len(),
+            })?;
+        let end_offset = entry.checked_add(4).ok_or(BinaryError::OutOfRange {
+            offset: entry,
+            len: 4,
+        })?;
+        let start = read_be_u32(binary, entry)?
             .checked_sub(mem_subtract)
             .ok_or(BinaryError::InvalidAddress)?;
-        let end = read_be_u32(binary, descriptor_offset + 8 + (8 * i))?
+        let end = read_be_u32(binary, end_offset)?
             .checked_sub(mem_subtract)
             .ok_or(BinaryError::InvalidAddress)?;
         let segment = checked_range(binary, start, end)?;
@@ -93,11 +110,10 @@ pub(crate) fn mapped_segment<'a>(
     end: u32,
 ) -> Result<&'a [u8], BinaryError> {
     if start > EXTERNAL_FLASH_BASE {
-        checked_range(
-            external,
-            start - EXTERNAL_FLASH_BASE,
-            end - EXTERNAL_FLASH_BASE,
-        )
+        let mapped_end = end
+            .checked_sub(EXTERNAL_FLASH_BASE)
+            .ok_or(BinaryError::InvalidAddress)?;
+        checked_range(external, start - EXTERNAL_FLASH_BASE, mapped_end)
     } else {
         checked_range(mpc, start, end)
     }
@@ -109,9 +125,61 @@ pub(crate) fn checked_range(buf: &[u8], start: u32, end: u32) -> Result<&[u8], B
     }
 
     let start = start as usize;
-    let len = (end - start as u32 + 1) as usize;
-    buf.get(start..start + len)
+    let len = usize::try_from(end - start as u32)
+        .ok()
+        .and_then(|difference| difference.checked_add(1))
+        .ok_or(BinaryError::InvalidAddress)?;
+    let range_end = start
+        .checked_add(len)
+        .ok_or(BinaryError::OutOfRange { offset: start, len })?;
+    buf.get(start..range_end)
         .ok_or(BinaryError::OutOfRange { offset: start, len })
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    fn bitwise_crc(bytes: &[u8], initial: u32) -> u32 {
+        let mut crc = initial;
+        for byte in bytes {
+            crc ^= u32::from(*byte) << 24;
+            for _ in 0..8 {
+                crc = if crc & 0x8000_0000 != 0 {
+                    (crc << 1) ^ 0x04c1_1db7
+                } else {
+                    crc << 1
+                };
+            }
+        }
+        crc
+    }
+
+    proptest! {
+        #[test]
+        fn table_crc_matches_independent_bitwise_model(data in proptest::collection::vec(any::<u8>(), 0..2048), initial: u32) {
+            prop_assert_eq!(crc32_ms45(&data, initial), bitwise_crc(&data, initial));
+        }
+
+        #[test]
+        fn crc_streaming_is_associative(data in proptest::collection::vec(any::<u8>(), 0..2048), split: usize, initial: u32) {
+            let split = split.min(data.len());
+            prop_assert_eq!(crc32_ms45(&data, initial), crc32_ms45(&data[split..], crc32_ms45(&data[..split], initial)));
+        }
+
+        #[test]
+        fn checked_ranges_match_slice_semantics(data in proptest::collection::vec(any::<u8>(), 0..1024), start: u32, end: u32) {
+            let expected = if end < start {
+                None
+            } else {
+                let inclusive_end = (end as usize).checked_add(1);
+                inclusive_end.and_then(|end| data.get(start as usize..end))
+            };
+            prop_assert_eq!(checked_range(&data, start, end).ok(), expected);
+        }
+    }
 }
 
 const CRC32_TABLE: [u32; 256] = [
@@ -120,7 +188,7 @@ const CRC32_TABLE: [u32; 256] = [
     0x4c11db70, 0x48d0c6c7, 0x4593e01e, 0x4152fda9, 0x5f15adac, 0x5bd4b01b, 0x569796c2, 0x52568b75,
     0x6a1936c8, 0x6ed82b7f, 0x639b0da6, 0x675a1011, 0x791d4014, 0x7ddc5da3, 0x709f7b7a, 0x745e66cd,
     0x9823b6e0, 0x9ce2ab57, 0x91a18d8e, 0x95609039, 0x8b27c03c, 0x8fe6dd8b, 0x82a5fb52, 0x8664e6e5,
-    0xbe2b5b58, 0xbaea46ef, 0xb7a96036, 0xb3687d81, 0xad2f2d84, 0xa9ee3033, 0xa4ad16ea, 0xa06c0b5,
+    0xbe2b5b58, 0xbaea46ef, 0xb7a96036, 0xb3687d81, 0xad2f2d84, 0xa9ee3033, 0xa4ad16ea, 0xa06c0b5d,
     0xd4326d90, 0xd0f37027, 0xddb056fe, 0xd9714b49, 0xc7361b4c, 0xc3f706fb, 0xceb42022, 0xca753d95,
     0xf23a8028, 0xf6fb9d9f, 0xfbb8bb46, 0xff79a6f1, 0xe13ef6f4, 0xe5ffeb43, 0xe8bccd9a, 0xec7dd02d,
     0x34867077, 0x30476dc0, 0x3d044b19, 0x39c556ae, 0x278206ab, 0x23431b1c, 0x2e003dc5, 0x2ac12072,

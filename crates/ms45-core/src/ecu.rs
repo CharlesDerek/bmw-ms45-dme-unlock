@@ -213,6 +213,7 @@ fn flash_error(error: impl std::fmt::Display) -> FlashError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::collections::VecDeque;
 
     struct Jobs {
@@ -319,5 +320,28 @@ mod tests {
             FlashBackend::write_block(&mut ecu, 0, &vec![0; MAX_JOB_PAYLOAD + 1], &mut |_| {}),
             Err(FlashError::InvalidPlan(_))
         ));
+    }
+
+    proptest! {
+        #[test]
+        fn address_length_validation_matches_checked_u32_arithmetic(start: u32, len: usize) {
+            let expected = len != 0
+                && u32::try_from(len).ok().and_then(|length| start.checked_add(length)).is_some();
+            prop_assert_eq!(validate_address_len(start, len).is_ok(), expected);
+        }
+
+        #[test]
+        fn read_ranges_outside_regions_are_rejected_without_jobs(start: u32, len: usize, external: bool) {
+            let jobs = Jobs { identity: Vec::new(), probe: Vec::new(), reads: VecDeque::new(), calls: 0 };
+            let region = if external { MemoryRegion::ExternalFlash } else { MemoryRegion::InternalMpc };
+            let limit = if external { crate::EXTERNAL_FLASH_LEN } else { crate::MPC_FLASH_LEN };
+            let valid = len != 0 && len <= MAX_JOB_PAYLOAD
+                && (start as usize).checked_add(len).is_some_and(|end| end <= limit);
+            if !valid {
+                let mut ecu = EcuOperations::new(jobs);
+                prop_assert_eq!(ecu.read(region, start, len), Err(EcuError::Range));
+                prop_assert_eq!(ecu.into_inner().calls, 0);
+            }
+        }
     }
 }

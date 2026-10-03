@@ -75,7 +75,15 @@ Run tests:
 
 ```bash
 cargo test --workspace
+PYTHONPATH=scripts python3 -m unittest scripts/test_ms45_read_bridge.py
 ```
+
+`ms45-core` includes randomized property tests for binary metadata and
+descriptor parsing, the MS45 CRC, signature inputs, protocol frames, and
+address arithmetic. The bridge suite also runs a deterministic malformed-byte
+fuzz campaign against Ediabas output parsing. Set `PROPTEST_CASES` to increase
+the Rust campaign size in CI or before a release; all generated failures are
+reduced to reproducible regression cases by proptest.
 
 Run lint checks:
 

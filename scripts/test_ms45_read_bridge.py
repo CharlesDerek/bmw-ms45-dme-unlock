@@ -2,6 +2,7 @@ import unittest
 import tempfile
 import json
 import hashlib
+import random
 from pathlib import Path
 from unittest.mock import patch
 
@@ -81,6 +82,24 @@ class BridgeTests(unittest.TestCase):
             bridge.parse_results(good + b"MEMORY: FF\n")
         with self.assertRaises(ValueError):
             bridge.parse_results(b"JOB_STATUS: ERROR\nMEMORY: AA\n")
+
+    def test_malformed_ediabas_output_fuzz_fails_safely(self):
+        rng = random.Random(0x45_01)
+        for _ in range(2000):
+            output = rng.randbytes(rng.randrange(0, 1024))
+            try:
+                results = bridge.parse_results(output)
+            except (UnicodeError, ValueError):
+                continue
+            self.assertEqual(results["JOB_STATUS"], "OKAY")
+            self.assertTrue(all(bridge.LABEL.fullmatch(name) for name in results))
+
+    def test_ediabas_parser_rejects_oversize_and_failure_markers(self):
+        with self.assertRaisesRegex(ValueError, "too large"):
+            bridge.parse_results(b"X" * 65537)
+        for marker in (b"Error occured: timeout", b"Job execution failed: rejected"):
+            with self.subTest(marker=marker), self.assertRaisesRegex(ValueError, "job failed"):
+                bridge.parse_results(marker + b"\nJOB_STATUS: OKAY\n")
 
     def test_short_read_fails(self):
         with patch.object(bridge, "run_job", return_value={"MEMORY": "AA"}):

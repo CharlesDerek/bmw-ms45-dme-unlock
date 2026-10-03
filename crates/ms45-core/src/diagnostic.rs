@@ -137,6 +137,7 @@ impl<T: EcuTransport> DiagnosticJobs for Ms45R1Jobs<T> {
 mod tests {
     use super::*;
     use crate::transport::SimulatedTransport;
+    use proptest::prelude::*;
 
     #[derive(Default)]
     struct StaleResponseTransport {
@@ -171,5 +172,78 @@ mod tests {
             simulation.receive_exact(&mut [0]),
             Err(TransportError::Disconnected)
         );
+    }
+
+    #[derive(Default)]
+    struct EchoNonceTransport {
+        request: Vec<u8>,
+        response: std::collections::VecDeque<u8>,
+        status: u8,
+        payload: Vec<u8>,
+    }
+
+    impl EchoNonceTransport {
+        fn new(status: u8, payload: Vec<u8>) -> Self {
+            Self {
+                status,
+                payload,
+                ..Self::default()
+            }
+        }
+    }
+
+    impl EcuTransport for EchoNonceTransport {
+        fn send(&mut self, bytes: &[u8]) -> Result<(), TransportError> {
+            self.request = bytes.to_vec();
+            let mut response = Vec::new();
+            response.extend_from_slice(MAGIC);
+            response.extend_from_slice(&bytes[6..14]);
+            response.push(self.status);
+            response.extend_from_slice(&(self.payload.len() as u16).to_be_bytes());
+            response.extend_from_slice(&self.payload);
+            self.response = response.into();
+            Ok(())
+        }
+
+        fn receive_exact(&mut self, bytes: &mut [u8]) -> Result<(), TransportError> {
+            if self.response.len() < bytes.len() {
+                return Err(TransportError::Disconnected);
+            }
+            for byte in bytes {
+                *byte = self.response.pop_front().unwrap();
+            }
+            Ok(())
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn valid_frames_round_trip_arbitrary_payloads(payload in proptest::collection::vec(any::<u8>(), 0..=MAX_JOB_PAYLOAD)) {
+            let mut jobs = Ms45R1Jobs::new(EchoNonceTransport::new(0, payload.clone()));
+            prop_assert_eq!(jobs.identify().unwrap(), payload);
+            let request = jobs.into_inner().request;
+            prop_assert_eq!(&request[..6], MAGIC);
+            prop_assert_eq!(request.len(), 22);
+        }
+
+        #[test]
+        fn arbitrary_response_headers_fail_closed(mut header in proptest::array::uniform17(any::<u8>())) {
+            // Force a magic mismatch while fuzzing every other header byte.
+            header[0] = !MAGIC[0];
+            let mut jobs = Ms45R1Jobs::new(SimulatedTransport::new(header.to_vec()));
+            prop_assert!(jobs.identify().is_err());
+        }
+
+        #[test]
+        fn protocol_status_mapping_is_total(status: u8) {
+            let mut jobs = Ms45R1Jobs::new(EchoNonceTransport::new(status, Vec::new()));
+            let result = jobs.identify();
+            match status {
+                0 => prop_assert_eq!(result, Ok(Vec::new())),
+                1 => prop_assert_eq!(result, Err(DiagnosticError::Range)),
+                2 => prop_assert_eq!(result, Err(DiagnosticError::Rejected)),
+                _ => prop_assert_eq!(result, Err(DiagnosticError::Protocol)),
+            }
+        }
     }
 }
