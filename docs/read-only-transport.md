@@ -1,5 +1,11 @@
 # Read-only adapter boundary
 
+The Rust client is composed as `TcpTransport` (`EcuTransport`) →
+`Ms45R1Jobs` (`DiagnosticJobs`) → `EcuOperations`. Framing and nonce checks are
+therefore independent of ECU identity/range/result validation. Future serial
+protocols can reuse `EcuOperations`; an Ediabas binding can implement
+`DiagnosticJobs` directly and reuse the same checks.
+
 `ms45 backup` connects to an operator-supplied TCP endpoint. The endpoint must
 be a separately validated bridge to BMW diagnostic jobs; this repository does
 not yet contain that bridge or claim hardware compatibility. Bind a bridge to

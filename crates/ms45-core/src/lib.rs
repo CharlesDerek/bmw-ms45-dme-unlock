@@ -1,8 +1,11 @@
 pub mod binary;
 pub mod checksum;
+pub mod diagnostic;
+pub mod ecu;
 pub mod flasher;
 pub mod read_only;
 pub mod signature;
+pub mod transport;
 
 pub use binary::{
     prepare_full_program, prepare_tune, verify_flash_mpc_match, verify_parameter_match,

@@ -23,6 +23,11 @@ Implemented:
   metadata and avoids accepting a shorter reference embedded in a longer one.
 * Native desktop GUI.
 * Local web-server GUI.
+* A layered ECU boundary: `EcuTransport` moves opaque bytes, `DiagnosticJobs`
+  owns protocol/job mapping, and `EcuOperations` applies shared identity,
+  address, result-length, and write-block safety checks before the existing
+  flash plan can run. TCP and deterministic simulation transports are included;
+  serial and Ediabas implementations remain external acceptance work.
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
   identity parsing, bounded reads, and a verified, resumable backup CLI. Its
   tests exercise wrong variants, stale responses, short reads, disconnects,
@@ -40,7 +45,7 @@ Not implemented yet:
 * Live DME write/erase/reset from Rust.
 * Native Ediabas/PRG job execution.
 
-Live flashing is intentionally behind a Rust backend boundary. The original application used EdiabasLib and BMW `.prg` files for hardware communication; this Rust branch needs either a binding to an Ediabas-compatible backend or a native PRG/job implementation before it should write to an ECU.
+Live flashing is intentionally behind layered Rust boundaries. The original application used EdiabasLib and BMW `.prg` files for hardware communication; this Rust branch needs either a validated `DiagnosticJobs` implementation backed by Ediabas or a serial `EcuTransport` plus native protocol/job implementation before it should write to an ECU.
 
 ## Build
 
