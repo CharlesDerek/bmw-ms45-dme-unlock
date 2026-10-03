@@ -38,7 +38,8 @@ Implemented:
   security access, partial erases, corrupted readback, and disconnects without
   sleeping or claiming physical-hardware coverage. See
   [bench simulator](docs/bench-simulator.md).
-* A read-only TCP job-adapter protocol with nonce-bound responses, strict
+* An opt-in `live-read` prototype with a read-only TCP job-adapter protocol,
+  nonce-bound responses, strict
   identity parsing, fail-closed normal programming-state validation, a
   metadata-only hardware probe, bounded reads, and a
   verified, resumable backup CLI. Its
@@ -194,10 +195,14 @@ Generate a security access message from known challenge data:
 cargo run -p ms45 -- security-message --user-id 01020304 --serial 05060708 --seed 090a0b0c
 ```
 
+Live ECU access is excluded from normal builds. Compile the read-only prototype
+explicitly with `--features live-read`; this adds only the `probe` and `backup`
+commands and does not add live security access, erase, write, or reset commands.
+
 Probe ECU metadata without reading flash or requesting security access:
 
 ```bash
-cargo run -p ms45 -- probe --adapter 127.0.0.1:4581
+cargo run -p ms45 --features live-read -- probe --adapter 127.0.0.1:4581
 ```
 
 The command prints `ms45.hardware-probe.v1` JSON containing the variant,
@@ -210,7 +215,7 @@ The probe command still reports other well-formed states to aid diagnosis.
 Read a bounded region through an independently implemented read-only adapter:
 
 ```bash
-cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
+cargo run -p ms45 --features live-read -- backup --adapter 127.0.0.1:4581 \
   --expected-variant MS45.1 --expected-hw-ref HW1 --expected-sw-ref SW1 \
   --expected-vin-sha256 SHA256_OF_APPROVED_VIN \
   --bridge-version 1.1.0 \
@@ -243,7 +248,7 @@ To publish only an encrypted final backup, explicitly select an encryption
 program and pass each option separately:
 
 ```bash
-cargo run -p ms45 -- backup [identity and range options] \
+cargo run -p ms45 --features live-read -- backup [identity and range options] \
   --output backup.bin.age --encrypt-with age \
   --encrypt-arg=-r --encrypt-arg=RECIPIENT
 ```

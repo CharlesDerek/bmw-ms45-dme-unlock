@@ -35,8 +35,14 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Run tests
+      - name: Run default-feature tests
         run: cargo test --workspace --all-targets
+
+      - name: Run live-read Clippy
+        run: cargo clippy --workspace --all-targets --features live-read -- -D warnings
+
+      - name: Run live-read tests
+        run: cargo test --workspace --all-targets --features live-read
 
       - name: Test read-only job bridge
         run: python -m unittest discover -s scripts -p 'test_ms45_read_bridge.py'

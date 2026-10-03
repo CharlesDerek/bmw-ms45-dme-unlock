@@ -1,5 +1,12 @@
 # Read-only adapter boundary
 
+This is an experimental compile-time capability. The default `ms45` build has
+no live ECU commands and does not compile the TCP-backed `ReadOnlyAdapter`.
+Build with `cargo build -p ms45 --features live-read` to include only the
+`probe` and `backup` commands. There are no live security-access, erase, write,
+signature-check, or reset commands in either build. The similarly named
+`security-message` command is offline byte generation and never contacts an ECU.
+
 The Rust client is composed as `TcpTransport` (`EcuTransport`) →
 `Ms45R1Jobs` (`DiagnosticJobs`) → `EcuOperations`. Framing and nonce checks are
 therefore independent of ECU identity/range/result validation. Future serial
@@ -143,7 +150,8 @@ unexpected output causes a rejected response. Start it with:
 python scripts/ms45_read_bridge.py --config /private/path/ms45-bridge.json
 ```
 
-Then run `ms45 backup` against `127.0.0.1:4581` with the pinned identity.
+Then run the feature-enabled `ms45 backup` against `127.0.0.1:4581` with the
+pinned identity.
 The bridge uses EdiabasTest's [documented command-line arguments](https://uholeschak.github.io/ediabaslib/docs/EdiabasTest_parameters.html)
 (`--sgbd`, `--port`, `--ifh`, and `--job`). It is an executable integration boundary, but the repo has no
 observed physical ECU backup yet. The original C# code sometimes performed

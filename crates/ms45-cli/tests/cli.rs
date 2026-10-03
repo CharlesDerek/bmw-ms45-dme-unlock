@@ -1,9 +1,12 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use sha2::{Digest, Sha256};
+#[cfg(feature = "live-read")]
 use std::io::{Read, Write};
+#[cfg(feature = "live-read")]
 use std::net::{TcpListener, TcpStream};
 
+#[cfg(feature = "live-read")]
 fn respond(stream: &mut TcpStream, request: &[u8; 22], payload: &[u8]) {
     let mut response = b"MS45R1".to_vec();
     response.extend_from_slice(&request[6..14]);
@@ -13,6 +16,7 @@ fn respond(stream: &mut TcpStream, request: &[u8; 22], payload: &[u8]) {
     stream.write_all(&response).unwrap();
 }
 
+#[cfg(feature = "live-read")]
 fn backup_command(
     address: std::net::SocketAddr,
     output: &std::path::Path,
@@ -58,6 +62,7 @@ fn version_is_available_for_bench_receipts() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn probe_reports_hashed_metadata_without_requesting_memory() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -101,6 +106,40 @@ fn probe_reports_hashed_metadata_without_requesting_memory() {
     );
     assert!(report.get("vin").is_none());
     server.join().unwrap();
+}
+
+#[test]
+#[cfg(feature = "live-read")]
+fn live_read_feature_exposes_no_destructive_commands() {
+    for command in ["security-access", "erase", "write", "reset"] {
+        Command::cargo_bin("ms45")
+            .unwrap()
+            .arg(command)
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(format!(
+                "unrecognized subcommand '{command}'"
+            )));
+    }
+}
+
+#[test]
+#[cfg(not(feature = "live-read"))]
+fn live_commands_are_absent_without_the_compile_time_feature() {
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .args(["probe", "--adapter", "127.0.0.1:4581"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unrecognized subcommand 'probe'"));
+
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("probe").not())
+        .stdout(predicate::str::contains("backup").not());
 }
 
 #[test]
@@ -494,6 +533,7 @@ fn flash_plan_verification_rejects_tampering_and_unapproved_signers() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_pins_identity_and_verifies_saved_bytes() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -576,6 +616,7 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_can_publish_only_operator_encrypted_output() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -640,6 +681,7 @@ fn backup_can_publish_only_operator_encrypted_output() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn failed_encryption_retains_verified_plaintext_recovery_without_output() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -676,6 +718,7 @@ fn failed_encryption_retains_verified_plaintext_recovery_without_output() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_refuses_to_overwrite_an_existing_output() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -706,6 +749,7 @@ fn backup_refuses_to_overwrite_an_existing_output() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_retains_verified_files_when_manifest_persistence_fails() {
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("backup.bin");
@@ -766,6 +810,7 @@ fn backup_retains_verified_files_when_manifest_persistence_fails() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_rejects_unsafe_programming_state_before_reading_memory() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -791,6 +836,7 @@ fn backup_rejects_unsafe_programming_state_before_reading_memory() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_resumes_only_verified_blocks_after_disconnect() {
     let first_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let first_address = first_listener.local_addr().unwrap();
@@ -883,6 +929,7 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_rejects_mismatched_independent_read_passes() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
@@ -914,6 +961,7 @@ fn backup_rejects_mismatched_independent_read_passes() {
 }
 
 #[test]
+#[cfg(feature = "live-read")]
 fn backup_rejects_corrupted_verified_progress() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

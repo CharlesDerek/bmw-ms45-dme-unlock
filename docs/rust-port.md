@@ -36,7 +36,9 @@ Not implemented yet:
 
 - A validated Ediabas `DiagnosticJobs` implementation or native serial
   `EcuTransport` plus diagnostic protocol/job implementation.
-- Live read, erase, write, reset, and signature-check commands against an actual DME.
+- Hardware-accepted live access. Experimental identify and bounded reads are
+  available only in builds made with `--features live-read`; erase, write,
+  security access, reset, and signature-check commands remain unavailable.
 
 The old C# app delegates communication to EdiabasLib and BMW `.prg` job files.
 An Ediabas integration belongs at `DiagnosticJobs`, because Ediabas owns its

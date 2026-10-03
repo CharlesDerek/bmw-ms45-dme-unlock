@@ -38,7 +38,8 @@ Add this object to the bridge configuration shown in
 3. Capture versions and redacted adapter details before starting the server:
    `python scripts/ms45_read_bridge.py --config /private/ms45.json --inventory`.
    Save its JSON output. Start the bridge normally in a second terminal.
-4. Build the pinned CLI (`cargo build --release -p ms45`) and record
+4. Build the pinned read-only prototype
+   (`cargo build --release -p ms45 --features live-read`) and record
    `target/release/ms45 --version` and `git rev-parse HEAD`.
 5. Run each backup command below. Each command performs two complete read passes
    and reports `verified` only when their SHA-256 hashes match, using the exact
@@ -73,4 +74,8 @@ Add this object to the bridge configuration shown in
    private test log; never record credentials or unredacted key identifiers.
 
 Acceptance is complete only when both variants are `passed`. This procedure
-does not authorize security access, erase, write, or reset.
+is the external gate for promoting the prototype beyond experimental status.
+Until every check has passed on both variants, loopback/unit results must not be
+described as live-hardware acceptance. This procedure does not authorize
+security access, erase, write, or reset, and the feature-enabled CLI exposes no
+such commands.

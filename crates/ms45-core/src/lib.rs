@@ -4,6 +4,7 @@ pub mod checksum;
 pub mod diagnostic;
 pub mod ecu;
 pub mod flasher;
+#[cfg(feature = "live-read")]
 pub mod read_only;
 pub mod signature;
 pub mod transport;

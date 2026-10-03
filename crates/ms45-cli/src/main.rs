@@ -1,20 +1,28 @@
+#[cfg(feature = "live-read")]
 use std::ffi::OsString;
+#[cfg(feature = "live-read")]
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{error::ErrorKind, Parser, Subcommand};
+#[cfg(feature = "live-read")]
 use ms45_core::flasher::MemoryRegion;
+#[cfg(feature = "live-read")]
 use ms45_core::read_only::ReadOnlyAdapter;
 use ms45_core::{
     prepare_full_program, prepare_tune, security_access_message, verify_flash_mpc_match,
     verify_parameter_match, verify_program_match,
 };
+#[cfg(feature = "live-read")]
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "live-read")]
 mod backup;
 use ms45::flash_plan_artifact;
-use ms45::output::{BackupReceipt, CliError, OperationResult};
+#[cfg(feature = "live-read")]
+use ms45::output::BackupReceipt;
+use ms45::output::{CliError, OperationResult};
 
 #[derive(Debug, Parser)]
 #[command(name = "ms45", version)]
@@ -68,11 +76,13 @@ enum Command {
         #[arg(long)]
         expected_public_key: String,
     },
+    #[cfg(feature = "live-read")]
     /// Report read-only ECU identity and status metadata.
     Probe {
         #[arg(long)]
         adapter: SocketAddr,
     },
+    #[cfg(feature = "live-read")]
     /// Read memory through a separately validated read-only ECU job adapter.
     Backup {
         #[arg(long)]
@@ -147,6 +157,7 @@ enum Command {
     LiveStatus,
 }
 
+#[cfg(feature = "live-read")]
 #[derive(Clone, Copy, Debug, clap::ValueEnum)]
 enum BackupRegion {
     External,
@@ -206,7 +217,9 @@ impl Command {
             Self::CreateFlashPlan { .. } => "create-flash-plan",
             Self::VerifyFlashPlan { .. } => "verify-flash-plan",
             Self::InspectFlashPlan { .. } => "inspect-flash-plan",
+            #[cfg(feature = "live-read")]
             Self::Probe { .. } => "probe",
+            #[cfg(feature = "live-read")]
             Self::Backup { .. } => "backup",
             Self::PrepareTune { .. } => "prepare-tune",
             Self::PrepareProgram { .. } => "prepare-program",
@@ -265,6 +278,7 @@ fn run(cli: Cli) -> Result<()> {
             let result = serde_json::to_value(flash_plan_artifact::inspect(&artifact))?;
             emit(json, "inspect-flash-plan", &result, &result)?;
         }
+        #[cfg(feature = "live-read")]
         Command::Probe { adapter } => {
             let mut session = ReadOnlyAdapter::connect(adapter, backup::ADAPTER_TIMEOUT)?;
             let report = session.probe()?;
@@ -272,6 +286,7 @@ fn run(cli: Cli) -> Result<()> {
             let result = serde_json::json!({"schema_version":"ms45.hardware-probe.v1","variant":report.variant,"hardware_reference":report.hardware_reference,"software_reference":report.software_reference,"programming_status":report.programming_status,"diagnostic_protocol":report.diagnostic_protocol,"vin_sha256":vin_hash});
             emit(json, "probe", &result, &result)?;
         }
+        #[cfg(feature = "live-read")]
         Command::Backup {
             adapter,
             expected_variant,
@@ -462,7 +477,10 @@ fn run(cli: Cli) -> Result<()> {
             )?;
         }
         Command::LiveStatus => {
-            let message = "Live DME flashing is not wired in this Rust port yet. The repo now has a FlashBackend trait for a future Ediabas/PRG or native diagnostic backend, while offline binary preparation is implemented and tested.";
+            #[cfg(feature = "live-read")]
+            let message = "Live DME flashing is unavailable. This build includes the experimental read-only identify and backup commands; live security access, erase, write, and reset are not compiled as CLI operations.";
+            #[cfg(not(feature = "live-read"))]
+            let message = "Live DME access is unavailable in this build. Rebuild with --features live-read for experimental identify and backup commands; live security access, erase, write, and reset remain unavailable.";
             emit(
                 json,
                 "live-status",
@@ -512,6 +530,7 @@ fn parse_hex_4(input: &str) -> std::result::Result<[u8; 4], String> {
         .map_err(|bytes: Vec<u8>| format!("expected 4 bytes, got {}", bytes.len()))
 }
 
+#[cfg(feature = "live-read")]
 fn parse_version_label(input: &str) -> std::result::Result<String, String> {
     if input.is_empty()
         || input.len() > 128

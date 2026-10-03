@@ -1,6 +1,9 @@
 //! Byte transport boundary for ECU protocols.
+#[cfg(feature = "live-read")]
 use std::io::{Read, Write};
+#[cfg(feature = "live-read")]
 use std::net::{SocketAddr, TcpStream};
+#[cfg(feature = "live-read")]
 use std::time::Duration;
 use thiserror::Error;
 
@@ -20,10 +23,12 @@ pub trait EcuTransport {
     fn receive_exact(&mut self, bytes: &mut [u8]) -> Result<(), TransportError>;
 }
 
+#[cfg(feature = "live-read")]
 pub struct TcpTransport {
     stream: TcpStream,
 }
 
+#[cfg(feature = "live-read")]
 impl TcpTransport {
     pub fn connect(address: SocketAddr, timeout: Duration) -> Result<Self, TransportError> {
         let stream = TcpStream::connect_timeout(&address, timeout).map_err(classify_io)?;
@@ -37,6 +42,7 @@ impl TcpTransport {
     }
 }
 
+#[cfg(feature = "live-read")]
 impl EcuTransport for TcpTransport {
     fn send(&mut self, bytes: &[u8]) -> Result<(), TransportError> {
         self.stream.write_all(bytes).map_err(classify_io)
@@ -47,6 +53,7 @@ impl EcuTransport for TcpTransport {
     }
 }
 
+#[cfg(feature = "live-read")]
 fn classify_io(error: std::io::Error) -> TransportError {
     match error.kind() {
         std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock => TransportError::Timeout,
