@@ -2356,11 +2356,14 @@ dependencies = [
  "crc32fast",
  "eframe",
  "egui",
+ "futures-util",
  "ms45",
  "ms45-core",
  "rfd",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tower",
  "tower-http",
 ]
 
@@ -3810,6 +3813,7 @@ version = "1.52.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
 dependencies = [
+ "bytes",
  "libc",
  "mio",
  "pin-project-lite",
@@ -3884,7 +3888,10 @@ dependencies = [
  "bitflags 2.13.0",
  "bytes",
  "http",
+ "http-body",
+ "http-body-util",
  "pin-project-lite",
+ "tokio",
  "tower-layer",
  "tower-service",
 ]

@@ -24,6 +24,9 @@ enum Command {
         host: IpAddr,
         #[arg(long, default_value_t = 4580)]
         port: u16,
+        /// Explicitly permit listening on a non-loopback interface.
+        #[arg(long)]
+        allow_non_loopback: bool,
     },
 }
 
@@ -31,6 +34,10 @@ enum Command {
 async fn main() -> Result<()> {
     match Args::parse().command.unwrap_or(Command::Desktop) {
         Command::Desktop => desktop::run(),
-        Command::Server { host, port } => server::run(SocketAddr::new(host, port)).await,
+        Command::Server {
+            host,
+            port,
+            allow_non_loopback,
+        } => server::run(SocketAddr::new(host, port), allow_non_loopback).await,
     }
 }

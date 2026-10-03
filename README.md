@@ -110,6 +110,19 @@ http://127.0.0.1:4580
 ```
 
 The web UI runs locally and sends uploaded files to the Rust server for validation and payload generation.
+It listens on loopback by default, rejects requests larger than 2 MiB, limits
+each uploaded field to 1 MiB, and times requests out after 30 seconds. Uploads
+are staged in per-request temporary directories that are removed after success,
+failure, cancellation, or timeout. Cross-origin access is not enabled.
+
+To bind to a network interface, the exposure must be acknowledged explicitly:
+
+```bash
+cargo run -p ms45-gui -- server --host 0.0.0.0 --allow-non-loopback
+```
+
+This server has no authentication or TLS. Only use non-loopback binding on a
+trusted, access-controlled network or behind an appropriately secured proxy.
 
 ## CLI
 
