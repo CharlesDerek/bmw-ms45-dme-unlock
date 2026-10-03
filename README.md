@@ -28,6 +28,11 @@ Implemented:
   address, result-length, and write-block safety checks before the existing
   flash plan can run. TCP and deterministic simulation transports are included;
   serial and Ediabas implementations remain external acceptance work.
+* A deterministic, stateful bench simulator for the complete flash-plan
+  boundary. Tests inject operation-specific timeouts, voltage loss, rejected
+  security access, partial erases, corrupted readback, and disconnects without
+  sleeping or claiming physical-hardware coverage. See
+  [bench simulator](docs/bench-simulator.md).
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
   identity parsing, bounded reads, and a verified, resumable backup CLI. Its
   tests exercise wrong variants, stale responses, short reads, disconnects,

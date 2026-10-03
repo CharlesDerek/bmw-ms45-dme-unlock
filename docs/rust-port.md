@@ -15,6 +15,10 @@ Implemented:
   identity, then checks every written block through `read_memory` before
   signature verification and reset. No live transport implementation is
   provided, so this is a safety contract rather than a live flashing feature.
+- A stateful `BenchSimulator` implementing `FlashBackend`. Its deterministic
+  fault schedule covers virtual timeouts, persistent voltage loss, security
+  rejection, partial erase state, corrupted reads, and disconnects. See
+  [bench simulator](bench-simulator.md).
 
 Not implemented yet:
 
@@ -27,7 +31,9 @@ An Ediabas integration belongs at `DiagnosticJobs`, because Ediabas owns its
 wire framing. A native implementation composes a serial `EcuTransport` with a
 protocol framer/job mapper. Both then use `EcuOperations` and `FlashPlan` for
 the same identity pinning, bounds, readback, and reset fencing. The included
-`SimulatedTransport` is deterministic test support, not an ECU emulator.
+`SimulatedTransport` is deterministic byte-stream test support. The
+`BenchSimulator` models memory and flash-plan failures, but is not an electrical
+or protocol-level ECU emulator.
 
 Hardware acceptance still requires validating the installed PRG result names,
 serial timing/framing, address maps, security access, erase/write/readback,

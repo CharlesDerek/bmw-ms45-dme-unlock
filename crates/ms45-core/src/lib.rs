@@ -1,3 +1,4 @@
+pub mod bench;
 pub mod binary;
 pub mod checksum;
 pub mod diagnostic;
@@ -7,6 +8,10 @@ pub mod read_only;
 pub mod signature;
 pub mod transport;
 
+pub use bench::{
+    BenchConfigurationError, BenchEvent, BenchFault, BenchOperation, BenchOutcome, BenchSimulator,
+    FaultPoint,
+};
 pub use binary::{
     prepare_full_program, prepare_tune, verify_flash_mpc_match, verify_parameter_match,
     verify_program_match, BinaryError, FullProgramPayload, TunePayload, EXTERNAL_FLASH_LEN,
