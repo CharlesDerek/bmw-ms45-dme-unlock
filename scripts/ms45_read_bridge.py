@@ -9,10 +9,12 @@ import json
 import re
 import socket
 import subprocess
+import hashlib
 from pathlib import Path
 
 MAGIC = b"MS45R1"
 MAX_READ = 4096
+BRIDGE_VERSION = "1.0.0"
 LABEL = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 HEX = re.compile(r"^(?:[0-9A-Fa-f]{2}(?: |$))+$")
 
@@ -45,6 +47,35 @@ def load_config(path):
     if not isinstance(template, str) or not re.fullmatch(r"[A-Za-z0-9_;{},]+", template) or "{start}" not in template or "{length}" not in template or "{region}" not in template:
         raise ValueError("read_args must contain start, length, and region placeholders")
     return config
+
+
+def inventory(config, config_path):
+    """Return reproducible, redacted tool and adapter information."""
+    adapter = config.get("adapter")
+    required = ("manufacturer", "model", "interface", "firmware")
+    if not isinstance(adapter, dict) or any(not isinstance(adapter.get(k), str) or not adapter[k] for k in required):
+        raise ValueError("adapter must provide manufacturer, model, interface, and firmware")
+    serial = adapter.get("serial")
+    if not isinstance(serial, str) or not serial:
+        raise ValueError("adapter must provide serial for one-way inventory hashing")
+    version_args = config.get("version_args", ["--version"])
+    if not isinstance(version_args, list) or not version_args or not all(isinstance(x, str) and x for x in version_args):
+        raise ValueError("version_args must be a nonempty argument array")
+    result = subprocess.run(config["command"] + version_args, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, timeout=10, check=False)
+    output = result.stdout.decode("utf-8", "replace").strip()
+    if result.returncode != 0 or not output or len(output) > 4096:
+        raise ValueError("could not capture EdiabasTest version")
+    return {
+        "schema_version": "ms45.bridge-inventory.v1",
+        "bridge_version": BRIDGE_VERSION,
+        "bridge_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "config_sha256": hashlib.sha256(Path(config_path).read_bytes()).hexdigest(),
+        "ediabas_tool_version": output,
+        "sgbd": config["sgbd"],
+        "adapter": {**{key: adapter[key] for key in required},
+                    "serial_sha256": hashlib.sha256(serial.encode()).hexdigest()},
+    }
 
 
 def parse_results(output):
@@ -156,5 +187,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--bind", default="127.0.0.1:4581")
+    parser.add_argument("--inventory", action="store_true",
+                        help="print redacted adapter/tool inventory and exit")
+    parser.add_argument("--version", action="version", version=BRIDGE_VERSION)
     args = parser.parse_args()
-    serve(load_config(args.config), args.bind)
+    config = load_config(args.config)
+    if args.inventory:
+        print(json.dumps(inventory(config, args.config), sort_keys=True))
+    else:
+        serve(config, args.bind)

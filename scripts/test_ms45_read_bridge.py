@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import json
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +18,19 @@ CONFIG = {
 
 
 class BridgeTests(unittest.TestCase):
+    def test_inventory_hashes_serial_and_captures_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.json"
+            config = {**CONFIG, "adapter": {"manufacturer": "TestCo", "model": "ReadOnly", "interface": "USB", "firmware": "1.2", "serial": "PRIVATE123"}}
+            config_path.write_text(json.dumps(config))
+            completed = type("Completed", (), {"returncode": 0, "stdout": b"EdiabasTest 1.2.3\n"})()
+            with patch.object(bridge.subprocess, "run", return_value=completed):
+                result = bridge.inventory(config, config_path)
+        self.assertEqual(result["bridge_version"], bridge.BRIDGE_VERSION)
+        self.assertEqual(result["ediabas_tool_version"], "EdiabasTest 1.2.3")
+        self.assertEqual(result["adapter"]["serial_sha256"], hashlib.sha256(b"PRIVATE123").hexdigest())
+        self.assertNotIn("serial", result["adapter"])
+
     def test_identity_and_exact_read(self):
         def fake_job(_config, job, arguments, _requested):
             if job == "identifikation":

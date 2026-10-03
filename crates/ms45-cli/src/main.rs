@@ -14,7 +14,7 @@ use ms45_core::{
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Parser)]
-#[command(name = "ms45")]
+#[command(name = "ms45", version)]
 #[command(about = "Rust tools for BMW MS45 binary validation and flash payload preparation")]
 struct Cli {
     #[command(subcommand)]

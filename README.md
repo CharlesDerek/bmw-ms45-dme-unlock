@@ -130,6 +130,9 @@ prints a JSON receipt with the VIN hash only. The adapter wire format is
 documented in [read-only transport](docs/read-only-transport.md). This is an
 interface for a future Ediabas/PRG job bridge, not an observed hardware backup.
 No CLI command grants security access, erases, writes, or resets an ECU.
+The [bench acceptance procedure](docs/bench-acceptance.md) defines full,
+repeatable MS45.0/MS45.1 reads, adapter and tool-version capture, and redacted
+receipts. Its first receipt is pending because no hardware run was available.
 
 ## Workspace
 

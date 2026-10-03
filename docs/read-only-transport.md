@@ -40,7 +40,14 @@ with a local JSON file (keep the file and any PRG assets out of Git):
   "sgbd": "D_MOTOR.GRP",
   "ecu_path": "/path/to/Ediabas/Ecu",
   "port": "COM4",
-  "ifh": "STD:OBD"
+  "ifh": "STD:OBD",
+  "adapter": {
+    "manufacturer": "ACTUAL_MANUFACTURER",
+    "model": "ACTUAL_MODEL",
+    "interface": "ACTUAL_INTERFACE_AND_DRIVER",
+    "firmware": "ACTUAL_FIRMWARE",
+    "serial": "PRIVATE_SERIAL"
+  }
 }
 ```
 
@@ -62,3 +69,10 @@ The bridge uses EdiabasTest's [documented command-line arguments](https://uholes
 observed physical ECU backup yet. The original C# code sometimes performed
 security access before reading; this bridge deliberately does not. A DME that
 requires security access will refuse the read.
+
+The complete two-variant hardware gate, repeat-read hash checks, tool-version
+capture, and redacted evidence rules are in [bench acceptance](bench-acceptance.md).
+`--inventory` hashes the private configuration and adapter serial and captures
+the actual EdiabasTest version without printing the serial. The checked-in
+[first receipt](receipts/first-read-only-backup.json) remains pending until
+those physical tests are performed.

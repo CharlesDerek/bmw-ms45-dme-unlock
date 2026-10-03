@@ -1,0 +1,34 @@
+{
+  "schema_version": "ms45.bench-acceptance.v1",
+  "status": "pending_hardware",
+  "scope": "first read-only full backup",
+  "results": {
+    "MS45.0": {
+      "status": "not_run",
+      "hardware_reference": "0044560",
+      "software_reference": null,
+      "vin_sha256": null,
+      "external": {"length": 1048576, "first_sha256": null, "repeat_sha256": null},
+      "mpc": {"length": 458752, "first_sha256": null, "repeat_sha256": null}
+    },
+    "MS45.1": {
+      "status": "not_run",
+      "hardware_reference": "0044570",
+      "software_reference": null,
+      "vin_sha256": null,
+      "external": {"length": 1048576, "first_sha256": null, "repeat_sha256": null},
+      "mpc": {"length": 458752, "first_sha256": null, "repeat_sha256": null}
+    }
+  },
+  "required_evidence": [
+    "utc_timestamp",
+    "repository_commit",
+    "cli_version",
+    "bridge_inventory",
+    "bench_supply_voltage_and_current",
+    "external_length_1048576_and_two_matching_sha256",
+    "mpc_length_458752_and_two_matching_sha256"
+  ],
+  "privacy": "VIN and adapter serial are represented only by SHA-256; raw images are not committed",
+  "note": "No physical hardware result was available when this record was created"
+}

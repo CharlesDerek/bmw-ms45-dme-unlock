@@ -5,6 +5,16 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 
 #[test]
+fn version_is_available_for_bench_receipts() {
+    Command::cargo_bin("ms45")
+        .unwrap()
+        .arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match("^ms45 [0-9]+\\.[0-9]+\\.[0-9]+\\n$").unwrap());
+}
+
+#[test]
 fn security_message_accepts_common_hex_formats() {
     Command::cargo_bin("ms45")
         .unwrap()
