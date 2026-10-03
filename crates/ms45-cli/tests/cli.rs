@@ -142,6 +142,94 @@ fn security_message_rejects_odd_length_hex() {
 }
 
 #[test]
+fn json_mode_emits_versioned_operation_and_error_documents() {
+    let success = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "--json",
+            "security-message",
+            "--user-id",
+            "01020304",
+            "--serial",
+            "05060708",
+            "--seed",
+            "090a0b0c",
+        ])
+        .output()
+        .unwrap();
+    assert!(success.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&success.stdout).unwrap();
+    assert_eq!(result["schema_version"], "ms45.operation-result.v1");
+    assert_eq!(result["status"], "success");
+    assert_eq!(result["operation"], "security-message");
+    assert_eq!(result["result"]["message_hex"].as_str().unwrap().len(), 180);
+    assert_eq!(result.as_object().unwrap().len(), 4);
+
+    let failure = Command::cargo_bin("ms45")
+        .unwrap()
+        .args(["--json", "security-message", "--user-id", "0102030"])
+        .output()
+        .unwrap();
+    assert_eq!(failure.status.code(), Some(2));
+    assert!(failure.stdout.is_empty());
+    let error: serde_json::Value = serde_json::from_slice(&failure.stderr).unwrap();
+    assert_eq!(error["schema_version"], "ms45.cli-error.v1");
+    assert_eq!(error["status"], "error");
+    assert_eq!(error["code"], "invalid_arguments");
+    assert!(error["operation"].is_null());
+    assert!(error["causes"].is_array());
+    assert_eq!(error.as_object().unwrap().len(), 6);
+
+    let runtime_failure = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "--json",
+            "security-message",
+            "--user-id",
+            "01020304",
+            "--serial",
+            "05060708",
+            "--seed",
+            "abc",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(runtime_failure.status.code(), Some(1));
+    let error: serde_json::Value = serde_json::from_slice(&runtime_failure.stderr).unwrap();
+    assert_eq!(error["code"], "operation_failed");
+    assert_eq!(error["operation"], "security-message");
+    assert_eq!(
+        error["message"],
+        "hex input must contain an even number of digits"
+    );
+}
+
+#[test]
+fn checked_in_json_schemas_are_versioned_and_strict() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for (path, version) in [
+        ("docs/schemas/cli-error-v1.schema.json", "ms45.cli-error.v1"),
+        (
+            "docs/schemas/operation-result-v1.schema.json",
+            "ms45.operation-result.v1",
+        ),
+        (
+            "docs/schemas/backup-receipt-v1.schema.json",
+            "ms45.backup-receipt.v1",
+        ),
+    ] {
+        let schema: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap();
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(schema["properties"]["schema_version"]["const"], version);
+    }
+}
+
+#[test]
 fn validate_reports_tune_reference_match() {
     let temp = tempfile::tempdir().unwrap();
     let tune_path = temp.path().join("tune.bin");
@@ -527,6 +615,7 @@ fn backup_can_publish_only_operator_encrypted_output() {
     assert!(!output.with_file_name("backup.enc.partial").exists());
     assert!(!output.with_file_name("backup.enc.progress.json").exists());
     let receipt: serde_json::Value = serde_json::from_slice(&command_output.stdout).unwrap();
+    assert_eq!(receipt["schema_version"], "ms45.backup-receipt.v1");
     assert_eq!(receipt["encrypted"], true);
     assert_eq!(
         receipt["sha256"],

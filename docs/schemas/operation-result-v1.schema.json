@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/development/docs/schemas/operation-result-v1.schema.json",
+  "title": "MS45 CLI operation result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "operation", "result"],
+  "properties": {
+    "schema_version": { "const": "ms45.operation-result.v1" },
+    "status": { "const": "success" },
+    "operation": { "type": "string", "minLength": 1 },
+    "result": { "type": "object" }
+  }
+}

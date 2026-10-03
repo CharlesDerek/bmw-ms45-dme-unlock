@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/development/docs/schemas/cli-error-v1.schema.json",
+  "title": "MS45 CLI error v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "operation", "code", "message", "causes"],
+  "properties": {
+    "schema_version": { "const": "ms45.cli-error.v1" },
+    "status": { "const": "error" },
+    "operation": { "type": ["string", "null"] },
+    "code": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "causes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

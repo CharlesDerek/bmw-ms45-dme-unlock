@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{error::ErrorKind, Parser, Subcommand};
 use ms45_core::flasher::MemoryRegion;
 use ms45_core::read_only::ReadOnlyAdapter;
 use ms45_core::{
@@ -14,11 +14,15 @@ use sha2::{Digest, Sha256};
 
 mod backup;
 use ms45::flash_plan_artifact;
+use ms45::output::{BackupReceipt, CliError, OperationResult};
 
 #[derive(Debug, Parser)]
 #[command(name = "ms45", version)]
 #[command(about = "Rust tools for BMW MS45 binary validation and flash payload preparation")]
 struct Cli {
+    /// Emit stable, versioned JSON on stdout and stderr.
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -155,8 +159,66 @@ enum SignatureTarget {
     Program,
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
+fn main() -> std::process::ExitCode {
+    let json_requested = std::env::args_os().any(|arg| arg == "--json");
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            let _ = error.print();
+            return std::process::ExitCode::SUCCESS;
+        }
+        Err(error) => {
+            if json_requested {
+                print_json_error(
+                    None,
+                    "invalid_arguments",
+                    &anyhow::Error::msg(error.to_string()),
+                );
+            } else {
+                let _ = error.print();
+            }
+            return std::process::ExitCode::from(2);
+        }
+    };
+    let json = cli.json;
+    let operation = cli.command.name();
+    match run(cli) {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            if json {
+                print_json_error(Some(operation), "operation_failed", &error);
+            } else {
+                eprintln!("Error: {error:#}");
+            }
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+impl Command {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::CreateFlashPlan { .. } => "create-flash-plan",
+            Self::VerifyFlashPlan { .. } => "verify-flash-plan",
+            Self::InspectFlashPlan { .. } => "inspect-flash-plan",
+            Self::Probe { .. } => "probe",
+            Self::Backup { .. } => "backup",
+            Self::PrepareTune { .. } => "prepare-tune",
+            Self::PrepareProgram { .. } => "prepare-program",
+            Self::Validate { .. } => "validate",
+            Self::SecurityMessage { .. } => "security-message",
+            Self::LiveStatus => "live-status",
+        }
+    }
+}
+
+fn run(cli: Cli) -> Result<()> {
+    let json = cli.json;
 
     match cli.command {
         Command::CreateFlashPlan {
@@ -184,39 +246,31 @@ fn main() -> Result<()> {
                 signing_key: &signing_key,
             })?;
             flash_plan_artifact::write(&output, &artifact)?;
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":"ms45.flash-plan-created.v1","status":"signed","output":output,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key})
-            );
+            let result = serde_json::json!({"schema_version":"ms45.flash-plan-created.v1","status":"signed","output":output,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key});
+            emit(json, "create-flash-plan", &result, &result)?;
         }
         Command::VerifyFlashPlan {
             input,
             expected_public_key,
         } => {
             let artifact = flash_plan_artifact::read_and_verify(&input, &expected_public_key)?;
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":"ms45.flash-plan-verified.v1","status":"verified","input":input,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key})
-            );
+            let result = serde_json::json!({"schema_version":"ms45.flash-plan-verified.v1","status":"verified","input":input,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key});
+            emit(json, "verify-flash-plan", &result, &result)?;
         }
         Command::InspectFlashPlan {
             input,
             expected_public_key,
         } => {
             let artifact = flash_plan_artifact::read_and_verify(&input, &expected_public_key)?;
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&flash_plan_artifact::inspect(&artifact))?
-            );
+            let result = serde_json::to_value(flash_plan_artifact::inspect(&artifact))?;
+            emit(json, "inspect-flash-plan", &result, &result)?;
         }
         Command::Probe { adapter } => {
             let mut session = ReadOnlyAdapter::connect(adapter, backup::ADAPTER_TIMEOUT)?;
             let report = session.probe()?;
             let vin_hash = format!("{:x}", Sha256::digest(report.vin.as_bytes()));
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":"ms45.hardware-probe.v1","variant":report.variant,"hardware_reference":report.hardware_reference,"software_reference":report.software_reference,"programming_status":report.programming_status,"diagnostic_protocol":report.diagnostic_protocol,"vin_sha256":vin_hash})
-            );
+            let result = serde_json::json!({"schema_version":"ms45.hardware-probe.v1","variant":report.variant,"hardware_reference":report.hardware_reference,"software_reference":report.software_reference,"programming_status":report.programming_status,"diagnostic_protocol":report.diagnostic_protocol,"vin_sha256":vin_hash});
+            emit(json, "probe", &result, &result)?;
         }
         Command::Backup {
             adapter,
@@ -284,17 +338,39 @@ fn main() -> Result<()> {
                     encryption: encryption.as_ref(),
                 },
             )?;
-            println!(
-                "{}",
-                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":outcome.plaintext_sha256,"output_sha256":outcome.output_sha256,"encrypted":encryption.is_some(),"read_passes":backup::READ_PASSES,"resumed_bytes":outcome.resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
-            );
+            let manifest = backup::manifest_path(&output);
+            let receipt = BackupReceipt {
+                schema_version: ms45::output::BACKUP_RECEIPT_SCHEMA,
+                status: "verified",
+                variant: &identity.variant,
+                hardware_reference: &identity.hardware_reference,
+                software_reference: &identity.software_reference,
+                vin_sha256: &vin_hash,
+                region: region_name,
+                start,
+                length,
+                sha256: &outcome.plaintext_sha256,
+                output_sha256: &outcome.output_sha256,
+                encrypted: encryption.is_some(),
+                read_passes: backup::READ_PASSES,
+                resumed_bytes: outcome.resumed_bytes,
+                output: &output,
+                manifest: &manifest,
+            };
+            println!("{}", serde_json::to_string(&receipt)?);
         }
         Command::PrepareTune { input, output } => {
             let input_bytes = read(&input)?;
             let payload = prepare_tune(&input_bytes)?;
             std::fs::write(&output, payload.data)
                 .with_context(|| format!("failed to write {}", output.display()))?;
-            println!("wrote prepared tune payload to {}", output.display());
+            let result = serde_json::json!({"output": output});
+            emit(
+                json,
+                "prepare-tune",
+                &result,
+                &format!("wrote prepared tune payload to {}", output.display()),
+            )?;
         }
         Command::PrepareProgram {
             external,
@@ -309,11 +385,18 @@ fn main() -> Result<()> {
                 .with_context(|| format!("failed to write {}", external_output.display()))?;
             std::fs::write(&mpc_output, payload.mpc_program)
                 .with_context(|| format!("failed to write {}", mpc_output.display()))?;
-            println!(
-                "wrote prepared program payloads to {} and {}",
-                external_output.display(),
-                mpc_output.display()
-            );
+            let result =
+                serde_json::json!({"external_output": external_output, "mpc_output": mpc_output});
+            emit(
+                json,
+                "prepare-program",
+                &result,
+                &format!(
+                    "wrote prepared program payloads to {} and {}",
+                    external_output.display(),
+                    mpc_output.display()
+                ),
+            )?;
         }
         Command::Validate {
             tune,
@@ -322,30 +405,46 @@ fn main() -> Result<()> {
             mpc,
             hw_ref,
         } => {
+            let mut result = serde_json::Map::new();
             if let (Some(path), Some(sw_ref)) = (tune, sw_ref) {
                 let bytes = read(&path)?;
-                println!(
-                    "tune/software reference match: {}",
-                    verify_parameter_match(&bytes, &sw_ref)?
+                let matched = verify_parameter_match(&bytes, &sw_ref)?;
+                result.insert(
+                    "tune_software_reference_match".into(),
+                    serde_json::Value::Bool(matched),
                 );
+                if !json {
+                    println!("tune/software reference match: {matched}");
+                }
             }
 
             if let Some(external_path) = external {
                 let external_bytes = read(&external_path)?;
                 if let Some(hw_ref) = hw_ref {
-                    println!(
-                        "program/hardware reference match: {}",
-                        verify_program_match(&external_bytes, &hw_ref)?
+                    let matched = verify_program_match(&external_bytes, &hw_ref)?;
+                    result.insert(
+                        "program_hardware_reference_match".into(),
+                        serde_json::Value::Bool(matched),
                     );
+                    if !json {
+                        println!("program/hardware reference match: {matched}");
+                    }
                 }
 
                 if let Some(mpc_path) = mpc {
                     let mpc_bytes = read(&mpc_path)?;
-                    println!(
-                        "external/MPC pair match: {}",
-                        verify_flash_mpc_match(&external_bytes, &mpc_bytes)?
+                    let matched = verify_flash_mpc_match(&external_bytes, &mpc_bytes)?;
+                    result.insert(
+                        "external_mpc_pair_match".into(),
+                        serde_json::Value::Bool(matched),
                     );
+                    if !json {
+                        println!("external/MPC pair match: {matched}");
+                    }
                 }
+            }
+            if json {
+                emit(true, "validate", &serde_json::Value::Object(result), &"")?;
             }
         }
         Command::SecurityMessage {
@@ -354,19 +453,52 @@ fn main() -> Result<()> {
             seed,
         } => {
             let seed = parse_hex_bytes(&seed).map_err(|err| anyhow::anyhow!(err))?;
-            println!(
-                "{}",
-                to_hex(&security_access_message(user_id, serial, seed.as_slice()))
-            );
+            let message = to_hex(&security_access_message(user_id, serial, seed.as_slice()));
+            emit(
+                json,
+                "security-message",
+                &serde_json::json!({"message_hex": message}),
+                &message,
+            )?;
         }
         Command::LiveStatus => {
-            println!(
-                "Live DME flashing is not wired in this Rust port yet. The repo now has a FlashBackend trait for a future Ediabas/PRG or native diagnostic backend, while offline binary preparation is implemented and tested."
-            );
+            let message = "Live DME flashing is not wired in this Rust port yet. The repo now has a FlashBackend trait for a future Ediabas/PRG or native diagnostic backend, while offline binary preparation is implemented and tested.";
+            emit(
+                json,
+                "live-status",
+                &serde_json::json!({"available": false, "message": message}),
+                &message,
+            )?;
         }
     }
 
     Ok(())
+}
+
+fn emit(
+    json: bool,
+    operation: &str,
+    result: &serde_json::Value,
+    legacy: &impl std::fmt::Display,
+) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&OperationResult::success(operation, result.clone()))?
+        );
+    } else {
+        println!("{legacy}");
+    }
+    Ok(())
+}
+
+fn print_json_error(operation: Option<&str>, code: &str, error: &anyhow::Error) {
+    let causes = error.chain().skip(1).map(ToString::to_string).collect();
+    let value = CliError::new(operation, code, error.to_string(), causes);
+    let json = serde_json::to_string(&value).unwrap_or_else(|_| {
+        r#"{"schema_version":"ms45.cli-error.v1","status":"error","operation":null,"code":"serialization_failed","message":"failed to serialize CLI error","causes":[]}"#.to_owned()
+    });
+    eprintln!("{json}");
 }
 
 fn read(path: &PathBuf) -> Result<Vec<u8>> {

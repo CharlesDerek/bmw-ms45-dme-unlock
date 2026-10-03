@@ -223,6 +223,11 @@ receipts. Its first receipt is pending because no hardware run was available.
 
 ## Workspace
 
+For automation, pass the global `--json` option. Successful operations, CLI
+errors, and verified backup receipts have stable versioned contracts documented
+in [Versioned CLI JSON](docs/json-output.md), with JSON Schema files checked in
+under `docs/schemas/`.
+
 * `crates/ms45-core`: headless binary logic and flashing backend traits.
 * `crates/ms45-cli`: command-line interface.
 * `crates/ms45-gui`: native desktop GUI and local web server.

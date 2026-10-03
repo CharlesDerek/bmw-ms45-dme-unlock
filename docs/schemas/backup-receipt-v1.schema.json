@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/development/docs/schemas/backup-receipt-v1.schema.json",
+  "title": "MS45 verified backup receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "variant", "hardware_reference", "software_reference", "vin_sha256", "region", "start", "length", "sha256", "output_sha256", "encrypted", "read_passes", "resumed_bytes", "output", "manifest"],
+  "properties": {
+    "schema_version": { "const": "ms45.backup-receipt.v1" },
+    "status": { "const": "verified" },
+    "variant": { "enum": ["MS45.0", "MS45.1"] },
+    "hardware_reference": { "type": "string", "minLength": 1 },
+    "software_reference": { "type": "string", "minLength": 1 },
+    "vin_sha256": { "$ref": "#/$defs/sha256" },
+    "region": { "enum": ["external", "mpc"] },
+    "start": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "length": { "type": "integer", "minimum": 1 },
+    "sha256": { "$ref": "#/$defs/sha256" },
+    "output_sha256": { "$ref": "#/$defs/sha256" },
+    "encrypted": { "type": "boolean" },
+    "read_passes": { "type": "integer", "minimum": 2 },
+    "resumed_bytes": { "type": "integer", "minimum": 0 },
+    "output": { "type": "string", "minLength": 1 },
+    "manifest": { "type": "string", "minLength": 1 }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
