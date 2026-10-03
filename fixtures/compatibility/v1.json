@@ -1,15 +1,23 @@
 {
   "schema_version": "ms45.synthetic-compatibility.v1",
-  "source": "synthetic recipes; no ECU binary material",
+  "license": "CC0-1.0",
+  "source": "Project-authored synthetic structures; contains no ECU code or customer data",
+  "layouts": [
+    {"id":"ms450-7561520-0044560-r0","variant":"MS45.0","software_reference":"7561520","hardware_reference":"0044560","program_hardware_field":"0044560-0000","external_pair_reference":"0000010500","mpc_pair_reference":"0000010000"},
+    {"id":"ms450-7561521-0044560-r1","variant":"MS45.0","software_reference":"7561521","hardware_reference":"0044560","program_hardware_field":"0044560-0001","external_pair_reference":"0000020500","mpc_pair_reference":"0000020000"},
+    {"id":"ms451-7561522-0044570-r0","variant":"MS45.1","software_reference":"7561522","hardware_reference":"0044570","program_hardware_field":"0044570-0000","external_pair_reference":"0000030500","mpc_pair_reference":"0000030000"},
+    {"id":"ms451-7561523-0044570-r1","variant":"MS45.1","software_reference":"7561523","hardware_reference":"0044570","program_hardware_field":"0044570-0001","external_pair_reference":"0000040500","mpc_pair_reference":"0000040000"}
+  ],
   "cases": [
-    {"id":"ms450-tune-reference","variant":"MS45.0","recipe":"tune_valid","accept":true,"reason":"exact_software_reference"},
-    {"id":"ms451-tune-reference","variant":"MS45.1","recipe":"tune_valid","accept":true,"reason":"exact_software_reference"},
-    {"id":"tune-truncated","variant":"MS45.1","recipe":"tune_truncated","accept":false,"reason":"invalid_tune_length"},
-    {"id":"tune-nonnumeric","variant":"MS45.1","recipe":"tune_nonnumeric","accept":false,"reason":"invalid_numeric_metadata"},
-    {"id":"tune-embedded-reference","variant":"MS45.0","recipe":"tune_embedded_reference","accept":false,"reason":"reference_mismatch"},
-    {"id":"ms450-program-pair","variant":"MS45.0","recipe":"pair_valid","accept":true,"reason":"pair_metadata_match"},
-    {"id":"ms451-program-pair","variant":"MS45.1","recipe":"pair_valid","accept":true,"reason":"pair_metadata_match"},
-    {"id":"program-pair-incompatible","variant":"MS45.1","recipe":"pair_mismatch","accept":false,"reason":"pair_metadata_mismatch"},
-    {"id":"overlapping-segments","variant":"MS45.1","recipe":"overlap","accept":false,"reason":"overlapping_segments"}
+    {"id":"ms450-r0-known-layout","layout":"ms450-7561520-0044560-r0","recipe":"known_layout","accept":true,"reason":"all_metadata_match"},
+    {"id":"ms450-r1-known-layout","layout":"ms450-7561521-0044560-r1","recipe":"known_layout","accept":true,"reason":"all_metadata_match"},
+    {"id":"ms451-r0-known-layout","layout":"ms451-7561522-0044570-r0","recipe":"known_layout","accept":true,"reason":"all_metadata_match"},
+    {"id":"ms451-r1-known-layout","layout":"ms451-7561523-0044570-r1","recipe":"known_layout","accept":true,"reason":"all_metadata_match"},
+    {"id":"tune-truncated","layout":"ms451-7561522-0044570-r0","recipe":"tune_truncated","accept":false,"reason":"invalid_tune_length"},
+    {"id":"tune-nonnumeric","layout":"ms451-7561522-0044570-r0","recipe":"tune_nonnumeric","accept":false,"reason":"invalid_numeric_metadata"},
+    {"id":"tune-embedded-reference","layout":"ms450-7561520-0044560-r0","recipe":"tune_embedded_reference","accept":false,"reason":"reference_mismatch"},
+    {"id":"program-hardware-mismatch","layout":"ms450-7561521-0044560-r1","recipe":"hardware_mismatch","accept":false,"reason":"hardware_reference_mismatch"},
+    {"id":"program-pair-incompatible","layout":"ms451-7561523-0044570-r1","recipe":"pair_mismatch","accept":false,"reason":"pair_metadata_mismatch"},
+    {"id":"overlapping-segments","layout":"ms451-7561522-0044570-r0","recipe":"overlap","accept":false,"reason":"overlapping_segments"}
   ]
 }

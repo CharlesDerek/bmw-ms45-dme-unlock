@@ -27,8 +27,10 @@ Implemented:
   identity parsing, bounded reads, and a verified, resumable backup CLI. Its
   tests exercise wrong variants, stale responses, short reads, disconnects,
   interrupted backup recovery, and tampered progress.
-* A versioned synthetic compatibility manifest for structural metadata and
-  overlap rejection, exercised by the Rust test suite.
+* A versioned, CC0 synthetic compatibility manifest covering multiple
+  sanitized MS45.0/MS45.1 software, hardware-revision, and pairing structures,
+  plus metadata mismatch and overlap rejection, exercised by the Rust test
+  suite. See [the fixture notes](fixtures/compatibility/README.md).
 * A loopback-only read-only EdiabasTest job bridge that can serve the backup
   CLI after its PRG job/result mapping is independently validated on hardware.
 
