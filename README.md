@@ -24,8 +24,9 @@ Implemented:
 * Native desktop GUI.
 * Local web-server GUI.
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
-  identity parsing, bounded reads, and a verified backup CLI. Its simulator
-  exercises wrong variants, stale responses, short reads, and disconnects.
+  identity parsing, bounded reads, and a verified, resumable backup CLI. Its
+  tests exercise wrong variants, stale responses, short reads, disconnects,
+  interrupted backup recovery, and tampered progress.
 * A versioned synthetic compatibility manifest for structural metadata and
   overlap rejection, exercised by the Rust test suite.
 * A loopback-only read-only EdiabasTest job bridge that can serve the backup
@@ -125,8 +126,13 @@ cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
   --region external --start 0 --length 4096 --output backup.bin
 ```
 
-The command writes the file atomically, verifies its SHA-256 from disk, and
-prints a JSON receipt with the VIN hash only. The adapter wire format is
+The command checkpoints each verified 4096-byte block, safely resumes the same
+output after interruption, finalizes the file atomically, verifies its SHA-256
+from disk, and prints a JSON receipt with the VIN hash only. Resume progress is
+stored beside the requested output as `<output>.partial` and
+`<output>.progress.json`; keep both files together and rerun the identical
+command. The progress file binds block hashes to the exact ECU identity,
+region, start, and length. Do not edit it. The adapter wire format is
 documented in [read-only transport](docs/read-only-transport.md). This is an
 interface for a future Ediabas/PRG job bridge, not an observed hardware backup.
 No CLI command grants security access, erases, writes, or resets an ECU.

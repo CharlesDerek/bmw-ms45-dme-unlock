@@ -2213,6 +2213,7 @@ dependencies = [
  "clap",
  "ms45-core",
  "predicates",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",

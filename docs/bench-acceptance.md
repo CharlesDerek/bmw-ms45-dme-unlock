@@ -51,8 +51,14 @@ Add this object to the bridge configuration shown in
 6. Power-cycle the DME and repeat both reads to new files. Require each repeated
    file to have the same SHA-256 as its first read (`sha256sum -c`). A mismatch,
    short read, identity change, timeout, or bridge error fails acceptance.
-7. Copy the four CLI JSON receipts, inventory JSON, CLI version, commit, supply
-   voltage/current, and UTC timestamps into the private test log. Fill the
+7. During a separate full external read and full MPC read, interrupt the bridge
+   only after at least one block has completed. Confirm the `.partial` and
+   `.progress.json` files remain, restart the bridge, and repeat the identical
+   command. Require a successful receipt with nonzero `resumed_bytes` and a
+   final SHA-256 matching an uninterrupted read. Do not edit the progress files.
+8. Copy the four CLI JSON receipts, resume receipts, inventory JSON, CLI
+   version, commit, supply voltage/current, and UTC timestamps into the private
+   test log. Fill the
    redacted checked-in receipt with only hashes and non-identifying hardware
    details. Set a variant to `passed` only after both full ranges repeat exactly.
    Keep raw backups offline and access-controlled.

@@ -18,13 +18,29 @@ The client accepts only MS45.0 or MS45.1 identities, checks all pinned fields
 including a SHA-256 of the expected VIN, and limits one read to 4096 bytes.
 It rejects a mismatched nonce, malformed frame, short read, out-of-range
 address, timeout, or disconnect. It does not retry a read after an ambiguous
-partial response. Backup files are verified on disk before a JSON receipt is
-emitted. The command cannot issue write operations.
+partial response. Completed blocks are synced, reread from disk, and recorded
+with SHA-256 hashes in an atomically replaced progress manifest. On a later run
+with the same output path, the client re-identifies the ECU, requires the
+manifest's identity and requested range to match, and verifies every persisted
+block before requesting the first missing block. Uncheckpointed trailing bytes
+are truncated and reread; malformed, noncontiguous, missing, or hash-mismatched
+progress fails closed. This prevents a short or interrupted response from being
+accepted as completed data.
+
+While a backup is incomplete, `<output>.partial` contains its data and
+`<output>.progress.json` contains the `ms45.backup-progress.v1` manifest. Keep
+the pair together and repeat the identical command to resume. After all blocks
+are durable, the partial file is atomically renamed to the requested output,
+the full file is hashed from disk, and the manifest is removed. The receipt's
+`resumed_bytes` reports how much previously verified data was reused. The
+command cannot issue write operations.
 
 The loopback fixture in Rust tests implements this protocol and injects
-identity, replay, short-read, and disconnect faults. Hardware acceptance still
-requires an adapter implementing the actual MS45.0/MS45.1 diagnostic jobs and
-bench verification of the address map, identity mapping, and backup contents.
+identity, replay, short-read, and disconnect faults. CLI tests also interrupt a
+multi-block backup, confirm that only verified blocks are resumed, and reject a
+corrupted partial file. Hardware acceptance still requires an adapter
+implementing the actual MS45.0/MS45.1 diagnostic jobs and bench verification of
+the address map, identity mapping, resume behavior, and backup contents.
 
 ## EdiabasTest bridge
 
