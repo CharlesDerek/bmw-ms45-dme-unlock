@@ -123,6 +123,7 @@ Read a bounded region through an independently implemented read-only adapter:
 cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
   --expected-variant MS45.1 --expected-hw-ref HW1 --expected-sw-ref SW1 \
   --expected-vin-sha256 SHA256_OF_APPROVED_VIN \
+  --bridge-version 1.0.0 \
   --region external --start 0 --length 4096 --output backup.bin
 ```
 
@@ -132,7 +133,13 @@ from disk, and prints a JSON receipt with the VIN hash only. Resume progress is
 stored beside the requested output as `<output>.partial` and
 `<output>.progress.json`; keep both files together and rerun the identical
 command. The progress file binds block hashes to the exact ECU identity,
-region, start, and length. Do not edit it. The adapter wire format is
+bridge version, region, start, and length. Do not edit it. On completion,
+`<output>.manifest.json` is written atomically beside the backup using the
+versioned `ms45.backup-manifest.v1` format. It records hashed ECU identity
+fields, the address range, UTC start/completion timestamps, binary length and
+SHA-256, bridge and CLI versions, and effective read parameters. Supply the
+version printed by `scripts/ms45_read_bridge.py --version` to
+`--bridge-version`. The adapter wire format is
 documented in [read-only transport](docs/read-only-transport.md). This is an
 interface for a future Ediabas/PRG job bridge, not an observed hardware backup.
 No CLI command grants security access, erases, writes, or resets an ECU.

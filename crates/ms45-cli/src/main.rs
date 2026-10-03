@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -36,6 +35,9 @@ enum Command {
         expected_sw_ref: String,
         #[arg(long)]
         expected_vin_sha256: String,
+        /// Version reported by the independently deployed read bridge.
+        #[arg(long, value_parser = parse_version_label)]
+        bridge_version: String,
         #[arg(long, value_enum)]
         region: BackupRegion,
         #[arg(long)]
@@ -105,6 +107,7 @@ fn main() -> Result<()> {
             expected_hw_ref,
             expected_sw_ref,
             expected_vin_sha256,
+            bridge_version,
             region,
             start,
             length,
@@ -130,7 +133,7 @@ fn main() -> Result<()> {
             {
                 anyhow::bail!("backup range out of bounds");
             }
-            let mut session = ReadOnlyAdapter::connect(adapter, Duration::from_secs(3))?;
+            let mut session = ReadOnlyAdapter::connect(adapter, backup::ADAPTER_TIMEOUT)?;
             let identity = session.identify()?;
             let vin_hash = format!("{:x}", Sha256::digest(identity.vin.as_bytes()));
             if identity.variant != expected_variant
@@ -154,11 +157,12 @@ fn main() -> Result<()> {
                     length,
                     output: &output,
                     vin_sha256: &vin_hash,
+                    bridge_version: &bridge_version,
                 },
             )?;
             println!(
                 "{}",
-                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":digest,"resumed_bytes":resumed_bytes,"output":output})
+                serde_json::json!({"schema_version":"ms45.backup.v1","status":"verified","variant":identity.variant,"hardware_reference":identity.hardware_reference,"software_reference":identity.software_reference,"vin_sha256":vin_hash,"region":region_name,"start":start,"length":length,"sha256":digest,"resumed_bytes":resumed_bytes,"output":output,"manifest":backup::manifest_path(&output)})
             );
         }
         Command::PrepareTune { input, output } => {
@@ -250,6 +254,18 @@ fn parse_hex_4(input: &str) -> std::result::Result<[u8; 4], String> {
     bytes
         .try_into()
         .map_err(|bytes: Vec<u8>| format!("expected 4 bytes, got {}", bytes.len()))
+}
+
+fn parse_version_label(input: &str) -> std::result::Result<String, String> {
+    if input.is_empty()
+        || input.len() > 128
+        || !input
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() && byte != b'"' && byte != b'\\')
+    {
+        return Err("bridge version must be 1-128 printable non-space characters".into());
+    }
+    Ok(input.into())
 }
 
 fn parse_hex_bytes(input: &str) -> std::result::Result<Vec<u8>, String> {

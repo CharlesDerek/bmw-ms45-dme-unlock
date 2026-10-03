@@ -1,14 +1,19 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use chrono::{SecondsFormat, Utc};
 use ms45_core::flasher::MemoryRegion;
 use ms45_core::read_only::{Identity, ReadOnlyAdapter, MAX_READ};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const PROGRESS_SCHEMA: &str = "ms45.backup-progress.v1";
+const PROGRESS_SCHEMA: &str = "ms45.backup-progress.v2";
+const MANIFEST_SCHEMA: &str = "ms45.backup-manifest.v1";
+const PROTOCOL_VERSION: &str = "MS45R1";
+pub(crate) const ADAPTER_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy)]
 pub(crate) struct BackupRequest<'a> {
@@ -18,6 +23,7 @@ pub(crate) struct BackupRequest<'a> {
     pub length: usize,
     pub output: &'a Path,
     pub vin_sha256: &'a str,
+    pub bridge_version: &'a str,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -32,7 +38,57 @@ struct Progress {
     start: u32,
     length: usize,
     block_size: usize,
+    started_at: String,
+    bridge_version: String,
     blocks: Vec<VerifiedBlock>,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupManifest<'a> {
+    schema_version: &'static str,
+    ecu_identity_hashes: IdentityHashes,
+    address_range: AddressRange<'a>,
+    timestamps: Timestamps<'a>,
+    binary: Binary<'a>,
+    bridge_version: &'a str,
+    cli_version: &'static str,
+    read_parameters: ReadParameters,
+}
+
+#[derive(Debug, Serialize)]
+struct IdentityHashes {
+    variant_sha256: String,
+    hardware_reference_sha256: String,
+    software_reference_sha256: String,
+    vin_sha256: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AddressRange<'a> {
+    region: &'a str,
+    start: u32,
+    end_exclusive: u32,
+    length: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct Timestamps<'a> {
+    started_at: &'a str,
+    completed_at: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct Binary<'a> {
+    file_name: String,
+    length: usize,
+    sha256: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct ReadParameters {
+    protocol: &'static str,
+    block_size: usize,
+    timeout_milliseconds: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -50,6 +106,7 @@ pub(crate) fn run(
 ) -> Result<(String, usize)> {
     let partial_path = sidecar(request.output, ".partial");
     let progress_path = sidecar(request.output, ".progress.json");
+    let manifest_path = manifest_path(request.output);
     let mut progress = load_progress(&progress_path, identity, request)?;
     if !partial_path.exists()
         && request.output.exists()
@@ -61,6 +118,13 @@ pub(crate) fn run(
         verify_partial(request.output, &progress)
             .context("finalized backup does not match verified progress")?;
         let digest = digest_file(request.output)?;
+        write_manifest(
+            &manifest_path,
+            identity,
+            request,
+            &progress.started_at,
+            &digest,
+        )?;
         std::fs::remove_file(&progress_path)?;
         sync_parent(&progress_path)?;
         return Ok((digest, request.length));
@@ -122,6 +186,13 @@ pub(crate) fn run(
     if verified != digest {
         bail!("backup verification failed");
     }
+    write_manifest(
+        &manifest_path,
+        identity,
+        request,
+        &progress.started_at,
+        &digest,
+    )?;
     std::fs::remove_file(&progress_path)?;
     sync_parent(&progress_path)?;
     Ok((digest, completed))
@@ -138,6 +209,8 @@ fn load_progress(path: &Path, identity: &Identity, request: BackupRequest<'_>) -
         start: request.start,
         length: request.length,
         block_size: MAX_READ,
+        started_at: now(),
+        bridge_version: request.bridge_version.into(),
         blocks: Vec::new(),
     };
     if !path.exists() {
@@ -156,6 +229,7 @@ fn load_progress(path: &Path, identity: &Identity, request: BackupRequest<'_>) -
         || saved.start != expected.start
         || saved.length != expected.length
         || saved.block_size != expected.block_size
+        || saved.bridge_version != expected.bridge_version
     {
         bail!("backup progress does not match ECU identity or requested range");
     }
@@ -207,13 +281,74 @@ fn total_completed(progress: &Progress) -> Result<usize> {
 }
 
 fn persist_progress(path: &Path, progress: &Progress) -> Result<()> {
+    persist_json(path, progress)
+}
+
+fn persist_json(path: &Path, value: &impl Serialize) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    serde_json::to_writer_pretty(&mut temporary, progress)?;
+    serde_json::to_writer_pretty(&mut temporary, value)?;
     temporary.write_all(b"\n")?;
     temporary.as_file().sync_all()?;
     temporary.persist(path).map_err(|error| error.error)?;
     sync_parent(path)
+}
+
+fn write_manifest(
+    path: &Path,
+    identity: &Identity,
+    request: BackupRequest<'_>,
+    started_at: &str,
+    digest: &str,
+) -> Result<()> {
+    let completed_at = now();
+    let end_exclusive = request
+        .start
+        .checked_add(u32::try_from(request.length).context("backup length overflow")?)
+        .context("backup address overflow")?;
+    let file_name = request
+        .output
+        .file_name()
+        .context("backup output must name a file")?
+        .to_string_lossy()
+        .into_owned();
+    let manifest = BackupManifest {
+        schema_version: MANIFEST_SCHEMA,
+        ecu_identity_hashes: IdentityHashes {
+            variant_sha256: hex_digest(identity.variant.as_bytes()),
+            hardware_reference_sha256: hex_digest(identity.hardware_reference.as_bytes()),
+            software_reference_sha256: hex_digest(identity.software_reference.as_bytes()),
+            vin_sha256: request.vin_sha256.into(),
+        },
+        address_range: AddressRange {
+            region: request.region_name,
+            start: request.start,
+            end_exclusive,
+            length: request.length,
+        },
+        timestamps: Timestamps {
+            started_at,
+            completed_at: &completed_at,
+        },
+        binary: Binary {
+            file_name,
+            length: request.length,
+            sha256: digest,
+        },
+        bridge_version: request.bridge_version,
+        cli_version: env!("CARGO_PKG_VERSION"),
+        read_parameters: ReadParameters {
+            protocol: PROTOCOL_VERSION,
+            block_size: MAX_READ,
+            timeout_milliseconds: ADAPTER_TIMEOUT.as_millis() as u64,
+        },
+    };
+    persist_json(path, &manifest)
+        .with_context(|| format!("failed to write backup manifest {}", path.display()))
+}
+
+fn now() -> String {
+    Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
 fn digest_file(path: &Path) -> Result<String> {
@@ -231,6 +366,10 @@ fn sidecar(output: &Path, suffix: &str) -> PathBuf {
     let mut value = output.as_os_str().to_os_string();
     value.push(suffix);
     value.into()
+}
+
+pub(crate) fn manifest_path(output: &Path) -> PathBuf {
+    sidecar(output, ".manifest.json")
 }
 
 fn sync_parent(path: &Path) -> Result<()> {

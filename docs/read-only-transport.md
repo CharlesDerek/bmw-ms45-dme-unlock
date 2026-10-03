@@ -28,12 +28,22 @@ progress fails closed. This prevents a short or interrupted response from being
 accepted as completed data.
 
 While a backup is incomplete, `<output>.partial` contains its data and
-`<output>.progress.json` contains the `ms45.backup-progress.v1` manifest. Keep
+`<output>.progress.json` contains the `ms45.backup-progress.v2` checkpoint. Keep
 the pair together and repeat the identical command to resume. After all blocks
 are durable, the partial file is atomically renamed to the requested output,
-the full file is hashed from disk, and the manifest is removed. The receipt's
+the full file is hashed from disk, and the checkpoint is removed. The receipt's
 `resumed_bytes` reports how much previously verified data was reused. The
 command cannot issue write operations.
+
+Every successful backup also has a permanent `<output>.manifest.json` sidecar.
+Its `ms45.backup-manifest.v1` schema records SHA-256 hashes of each ECU identity
+field (never the VIN itself), the half-open address range, UTC start and
+completion timestamps, the binary's name, size and SHA-256, the pinned bridge
+version, CLI version, protocol, block size, and timeout. Both the binary and
+manifest are synced and the manifest is atomically replaced. Keep them
+together; verify the binary against `binary.sha256` before use. The required
+`--bridge-version` value is operator-pinned because MS45R1 deliberately does
+not expose host metadata; obtain it from the deployed bridge's `--version`.
 
 The loopback fixture in Rust tests implements this protocol and injects
 identity, replay, short-read, and disconnect faults. CLI tests also interrupt a

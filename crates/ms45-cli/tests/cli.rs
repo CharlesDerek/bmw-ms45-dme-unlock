@@ -17,6 +17,7 @@ fn backup_command(
     address: std::net::SocketAddr,
     output: &std::path::Path,
     length: &str,
+    bridge_version: &str,
 ) -> Command {
     let vin_hash = format!("{:x}", Sha256::digest(b"TESTVIN"));
     let mut command = Command::cargo_bin("ms45").unwrap();
@@ -32,6 +33,8 @@ fn backup_command(
         "SW1",
         "--expected-vin-sha256",
         &vin_hash,
+        "--bridge-version",
+        bridge_version,
         "--region",
         "external",
         "--start",
@@ -145,6 +148,8 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
             "SW1",
             "--expected-vin-sha256",
             &vin_hash,
+            "--bridge-version",
+            "1.0.0",
             "--region",
             "external",
             "--start",
@@ -159,6 +164,35 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
         .stdout(predicate::str::contains("\"status\":\"verified\""));
     server.join().unwrap();
     assert_eq!(std::fs::read(output).unwrap(), vec![0x45; 16]);
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join("backup.bin.manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["schema_version"], "ms45.backup-manifest.v1");
+    assert_eq!(manifest["bridge_version"], "1.0.0");
+    assert_eq!(manifest["address_range"]["end_exclusive"], 16);
+    assert_eq!(manifest["binary"]["length"], 16);
+    assert_eq!(
+        manifest["binary"]["sha256"],
+        format!("{:x}", Sha256::digest([0x45; 16]))
+    );
+    assert_eq!(manifest["read_parameters"]["block_size"], 4096);
+    assert_eq!(manifest["read_parameters"]["timeout_milliseconds"], 3000);
+    assert!(manifest["timestamps"]["started_at"]
+        .as_str()
+        .unwrap()
+        .ends_with('Z'));
+    assert_eq!(
+        manifest["ecu_identity_hashes"]["vin_sha256"],
+        format!("{:x}", Sha256::digest(b"TESTVIN"))
+    );
+    assert!(
+        manifest["ecu_identity_hashes"]["hardware_reference_sha256"]
+            .as_str()
+            .unwrap()
+            .len()
+            == 64
+    );
 }
 
 #[test]
@@ -178,7 +212,7 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
     });
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("backup.bin");
-    backup_command(first_address, &output, "5000")
+    backup_command(first_address, &output, "5000", "1.0.0")
         .assert()
         .failure();
     first_server.join().unwrap();
@@ -188,13 +222,24 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
             .len(),
         4096
     );
-    assert!(output.with_file_name("backup.bin.progress.json").exists());
+    let progress_path = output.with_file_name("backup.bin.progress.json");
+    let started_at =
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(&progress_path).unwrap())
+            .unwrap()["started_at"]
+            .as_str()
+            .unwrap()
+            .to_owned();
 
     let second_listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let second_address = second_listener.local_addr().unwrap();
     let second_server = std::thread::spawn(move || {
         let (mut stream, _) = second_listener.accept().unwrap();
         let mut request = [0u8; 22];
+        stream.read_exact(&mut request).unwrap();
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
+        drop(stream);
+
+        let (mut stream, _) = second_listener.accept().unwrap();
         stream.read_exact(&mut request).unwrap();
         respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
         stream.read_exact(&mut request).unwrap();
@@ -205,7 +250,13 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
         assert_eq!(u16::from_be_bytes(request[20..22].try_into().unwrap()), 904);
         respond(&mut stream, &request, &[0x46; 904]);
     });
-    backup_command(second_address, &output, "5000")
+    backup_command(second_address, &output, "5000", "2.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "backup progress does not match ECU identity or requested range",
+        ));
+    backup_command(second_address, &output, "5000", "1.0.0")
         .assert()
         .success()
         .stdout(predicate::str::contains("\"resumed_bytes\":4096"));
@@ -214,7 +265,12 @@ fn backup_resumes_only_verified_blocks_after_disconnect() {
     assert_eq!(&bytes[..4096], &[0x45; 4096]);
     assert_eq!(&bytes[4096..], &[0x46; 904]);
     assert!(!output.with_file_name("backup.bin.partial").exists());
-    assert!(!output.with_file_name("backup.bin.progress.json").exists());
+    assert!(!progress_path.exists());
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(output.with_file_name("backup.bin.manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["timestamps"]["started_at"], started_at);
 }
 
 #[test]
@@ -232,7 +288,9 @@ fn backup_rejects_corrupted_verified_progress() {
     });
     let dir = tempfile::tempdir().unwrap();
     let output = dir.path().join("backup.bin");
-    backup_command(address, &output, "5000").assert().failure();
+    backup_command(address, &output, "5000", "1.0.0")
+        .assert()
+        .failure();
     server.join().unwrap();
     let partial = output.with_file_name("backup.bin.partial");
     let mut bytes = std::fs::read(&partial).unwrap();
@@ -247,7 +305,7 @@ fn backup_rejects_corrupted_verified_progress() {
         stream.read_exact(&mut request).unwrap();
         respond(&mut stream, &request, b"MS45.1|HW1|SW1|TESTVIN");
     });
-    backup_command(retry_address, &output, "5000")
+    backup_command(retry_address, &output, "5000", "1.0.0")
         .assert()
         .failure()
         .stderr(predicate::str::contains(

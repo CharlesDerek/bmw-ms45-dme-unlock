@@ -44,8 +44,8 @@ Add this object to the bridge configuration shown in
    checked label/job mapping:
 
    ```text
-   target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --region external --start 0 --length 1048576 --output external.bin
-   target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --region mpc --start 0 --length 458752 --output mpc.bin
+   target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --bridge-version BRIDGE_VERSION --region external --start 0 --length 1048576 --output external.bin
+   target/release/ms45 backup --adapter 127.0.0.1:4581 --expected-variant VARIANT --expected-hw-ref HW_REF --expected-sw-ref SW_REF --expected-vin-sha256 VIN_SHA256 --bridge-version BRIDGE_VERSION --region mpc --start 0 --length 458752 --output mpc.bin
    ```
 
 6. Power-cycle the DME and repeat both reads to new files. Require each repeated
@@ -56,7 +56,8 @@ Add this object to the bridge configuration shown in
    `.progress.json` files remain, restart the bridge, and repeat the identical
    command. Require a successful receipt with nonzero `resumed_bytes` and a
    final SHA-256 matching an uninterrupted read. Do not edit the progress files.
-8. Copy the four CLI JSON receipts, resume receipts, inventory JSON, CLI
+8. Verify each `.manifest.json` binary hash, then copy the manifests, four CLI
+   JSON receipts, resume receipts, inventory JSON, CLI
    version, commit, supply voltage/current, and UTC timestamps into the private
    test log. Fill the
    redacted checked-in receipt with only hashes and non-identifying hardware
