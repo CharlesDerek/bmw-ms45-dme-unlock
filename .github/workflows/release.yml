@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_CYCLONEDX_VERSION: "0.5.9"
+  SOURCE_DATE_EPOCH: "315532800"
+
+jobs:
+  package:
+    name: Package ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install SBOM generator
+        run: cargo install cargo-cyclonedx --version ${{ env.CARGO_CYCLONEDX_VERSION }} --locked
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(cargo metadata --no-deps --format-version 1 | python -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "ms45"))')"
+          test "$version" = "$cargo_version" || { echo "tag version $version does not match Cargo version $cargo_version" >&2; exit 1; }
+          cargo build --workspace --release --locked --target "${{ matrix.target }}"
+
+      - name: Generate CycloneDX SBOMs
+        shell: bash
+        run: |
+          cargo cyclonedx --format json --describe binaries --target "${{ matrix.target }}" --spec-version 1.5
+          mkdir -p target/release-sbom
+          cp crates/ms45-cli/ms45_bin.cdx.json target/release-sbom/ms45.cdx.json
+          cp crates/ms45-gui/ms45-gui_bin.cdx.json target/release-sbom/ms45-gui.cdx.json
+
+      - name: Package release
+        shell: bash
+        run: |
+          python scripts/release/package.py \
+            --version "${GITHUB_REF_NAME#v}" \
+            --target "${{ matrix.target }}" \
+            --binary-dir "target/${{ matrix.target }}/release" \
+            --sbom-dir target/release-sbom \
+            --output-dir target/release-artifacts
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: target/release-artifacts/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify checksums and create aggregate manifest
+        working-directory: artifacts
+        run: |
+          sha256sum --check *.zip.sha256
+          sha256sum *.zip | LC_ALL=C sort -k2 > SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes

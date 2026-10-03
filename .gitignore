@@ -15,6 +15,9 @@
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/
+# Release automation is source, not build output.
+!scripts/release/
+!scripts/release/**
 x64/
 x86/
 bld/
@@ -161,6 +164,8 @@ PublishScripts/
 
 # Rust
 target/
+crates/ms45-cli/ms45_bin.cdx.json
+crates/ms45-gui/ms45-gui_bin.cdx.json
 #!**/packages/repositories.config
 # NuGet v3's project.json files produces more ignoreable files
 *.nuget.props

@@ -24,9 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+        run: rustup show active-toolchain
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -42,6 +40,9 @@ jobs:
 
       - name: Test read-only job bridge
         run: python -m unittest discover -s scripts -p 'test_ms45_read_bridge.py'
+
+      - name: Test release packager
+        run: python -m unittest discover -s scripts/release -p 'test_*.py'
 
   opentofu:
     name: OpenTofu

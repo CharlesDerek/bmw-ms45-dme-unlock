@@ -97,6 +97,26 @@ Validate the OpenTofu Kubernetes module:
 scripts/ci/opentofu-validate.sh
 ```
 
+## Releases
+
+The Rust compiler is pinned in `rust-toolchain.toml`. Pushing a version tag such
+as `v0.1.0` builds locked Windows and Linux release binaries and publishes
+deterministic ZIP archives. Each archive contains the CLI, desktop GUI, license,
+README, and CycloneDX 1.5 SBOMs for both executables. Release assets include a
+SHA-256 file beside each archive and an aggregate `SHA256SUMS` manifest.
+
+The tag version should match the Cargo package version. To verify a download:
+
+```bash
+sha256sum --check bmw-ms45-dme-unlock-0.1.0-x86_64-unknown-linux-gnu.zip.sha256
+```
+
+Packaging normalizes archive order, timestamps, permissions, and compression.
+The workflow sets `SOURCE_DATE_EPOCH` and uses `cargo build --locked`; rerunning
+it from the same commit and pinned tool versions produces byte-identical
+archives on the same hosted-runner image. No physical ECU or external secrets
+are involved in release acceptance.
+
 ## Desktop GUI
 
 ```bash
