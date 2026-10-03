@@ -14,6 +14,7 @@ CONFIG = {
     "identity_results": {"variant": "VARIANTE", "hardware_reference": "HW_REF", "software_reference": "SW_REF", "vin": "VIN"},
     "read_job": "speicher_lesen_ascii", "read_result": "MEMORY",
     "read_args": "{region};{start};{length}",
+    "probe": {"programming_status_job": "program_status", "programming_status_result": "PROGRAM_STATUS", "diagnostic_protocol_job": "diag_protocol", "diagnostic_protocol_result": "DIAG_PROTOCOL"},
 }
 
 
@@ -41,6 +42,20 @@ class BridgeTests(unittest.TestCase):
         with patch.object(bridge, "run_job", side_effect=fake_job):
             self.assertEqual(bridge.execute(CONFIG, 1, 0, 0, 0), (0, b"MS45.1|HW1|SW1|TESTVIN"))
             self.assertEqual(bridge.execute(CONFIG, 2, 1, 10, 2), (0, b"\xaa\xbb"))
+
+    def test_probe_reads_metadata_only(self):
+        calls = []
+        def fake_job(_config, job, _arguments, _requested):
+            calls.append(job)
+            return {
+                "identifikation": {"VARIANTE": "MS45.1", "HW_REF": "HW1", "SW_REF": "SW1", "VIN": "TESTVIN"},
+                "program_status": {"PROGRAM_STATUS": "programmed"},
+                "diag_protocol": {"DIAG_PROTOCOL": "BMW-FAST"},
+            }[job]
+        with patch.object(bridge, "run_job", side_effect=fake_job):
+            result = bridge.execute(CONFIG, 3, 0, 0, 0)
+        self.assertEqual(result, (0, b"MS45.1|HW1|SW1|programmed|BMW-FAST|TESTVIN"))
+        self.assertEqual(calls, ["identifikation", "program_status", "diag_protocol"])
 
     def test_rejects_write_and_bad_ranges_without_invoking_job(self):
         with patch.object(bridge, "run_job") as job:

@@ -58,6 +58,52 @@ fn version_is_available_for_bench_receipts() {
 }
 
 #[test]
+fn probe_reports_hashed_metadata_without_requesting_memory() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 22];
+        stream.read_exact(&mut request).unwrap();
+        assert_eq!(&request[..6], b"MS45R1");
+        assert_eq!(request[14], 3, "probe must use the metadata-only operation");
+        assert_eq!(&request[15..], &[0; 7]);
+        respond(
+            &mut stream,
+            &request,
+            b"MS45.1|0044570|7561520|programmed|BMW-FAST|TESTVIN",
+        );
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(200)))
+            .unwrap();
+        assert_eq!(stream.read(&mut [0u8; 1]).unwrap_or(0), 0);
+    });
+    let output = Command::cargo_bin("ms45")
+        .unwrap()
+        .args(["probe", "--adapter", &address.to_string()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["schema_version"], "ms45.hardware-probe.v1");
+    assert_eq!(report["variant"], "MS45.1");
+    assert_eq!(report["hardware_reference"], "0044570");
+    assert_eq!(report["software_reference"], "7561520");
+    assert_eq!(report["programming_status"], "programmed");
+    assert_eq!(report["diagnostic_protocol"], "BMW-FAST");
+    assert_eq!(
+        report["vin_sha256"],
+        format!("{:x}", Sha256::digest(b"TESTVIN"))
+    );
+    assert!(report.get("vin").is_none());
+    server.join().unwrap();
+}
+
+#[test]
 fn security_message_accepts_common_hex_formats() {
     Command::cargo_bin("ms45")
         .unwrap()

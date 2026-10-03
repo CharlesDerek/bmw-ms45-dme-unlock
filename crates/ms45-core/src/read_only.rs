@@ -8,6 +8,7 @@ use std::time::Duration;
 
 pub use crate::diagnostic::MAX_JOB_PAYLOAD as MAX_READ;
 pub use crate::ecu::EcuIdentity as Identity;
+pub use crate::ecu::HardwareProbe;
 pub type ReadError = EcuError;
 
 pub struct ReadOnlyAdapter {
@@ -26,6 +27,10 @@ impl ReadOnlyAdapter {
 
     pub fn identify(&mut self) -> Result<Identity, ReadError> {
         self.ecu.identify()
+    }
+
+    pub fn probe(&mut self) -> Result<HardwareProbe, ReadError> {
+        self.ecu.probe()
     }
 
     pub fn read(

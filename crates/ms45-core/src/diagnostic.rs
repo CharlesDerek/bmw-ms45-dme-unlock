@@ -24,6 +24,10 @@ pub enum DiagnosticError {
 /// an [`EcuTransport`].
 pub trait DiagnosticJobs {
     fn identify(&mut self) -> Result<Vec<u8>, DiagnosticError>;
+    /// Read identity and status metadata without reading memory or changing ECU state.
+    fn probe(&mut self) -> Result<Vec<u8>, DiagnosticError> {
+        Err(DiagnosticError::Rejected)
+    }
     fn read_memory(
         &mut self,
         region: MemoryRegion,
@@ -100,6 +104,10 @@ impl<T: EcuTransport> Ms45R1Jobs<T> {
 impl<T: EcuTransport> DiagnosticJobs for Ms45R1Jobs<T> {
     fn identify(&mut self) -> Result<Vec<u8>, DiagnosticError> {
         self.exchange(1, 0, 0, 0)
+    }
+
+    fn probe(&mut self) -> Result<Vec<u8>, DiagnosticError> {
+        self.exchange(3, 0, 0, 0)
     }
 
     fn read_memory(

@@ -6,19 +6,28 @@ therefore independent of ECU identity/range/result validation. Future serial
 protocols can reuse `EcuOperations`; an Ediabas binding can implement
 `DiagnosticJobs` directly and reuse the same checks.
 
-`ms45 backup` connects to an operator-supplied TCP endpoint. The endpoint must
-be a separately validated bridge to BMW diagnostic jobs; this repository does
-not yet contain that bridge or claim hardware compatibility. Bind a bridge to
-loopback or an authenticated tunnel. The protocol itself has no encryption or
-authentication, so an untrusted network endpoint must not be used.
+`ms45 probe` and `ms45 backup` connect to an operator-supplied TCP endpoint.
+The endpoint must be a separately validated bridge to BMW diagnostic jobs;
+the included EdiabasTest bridge is not a claim of hardware compatibility. Bind
+a bridge to loopback or an authenticated tunnel. The protocol itself has no
+encryption or authentication, so an untrusted network endpoint must not be
+used.
 
 Each request is 22 bytes: `MS45R1` (6), random nonce (8), operation (1),
 region (1), big-endian start (4), big-endian length (2). Operation 1 identifies
-the ECU; operation 2 reads memory. Regions 1 and 2 select external and MPC
-flash. A response contains `MS45R1` (6), the same nonce (8), status (1),
-big-endian payload length (2), then payload. Status 0 succeeds, 1 rejects the
-address, and 2 rejects the operation. Identity payload is ASCII
+the ECU, operation 2 reads memory, and operation 3 performs a metadata-only
+hardware probe. Regions 1 and 2 select external and MPC flash. Probe requests
+require zero region, start, and length. A response contains `MS45R1` (6), the
+same nonce (8), status (1), big-endian payload length (2), then payload. Status
+0 succeeds, 1 rejects the address, and 2 rejects the operation. Identity payload is ASCII
 `variant|hardware_reference|software_reference|VIN`.
+
+Probe payload is ASCII
+`variant|hardware_reference|software_reference|programming_status|diagnostic_protocol|VIN`.
+The CLI emits `ms45.hardware-probe.v1` JSON with a SHA-256 VIN hash instead of
+the raw VIN. The loopback bridge serves it with identification/status jobs
+only; it does not call the memory-read job, and MS45R1 defines no
+security-access operation.
 
 The client accepts only MS45.0 or MS45.1 identities, checks all pinned fields
 including a SHA-256 of the expected VIN, and limits one read to 4096 bytes.
@@ -60,6 +69,9 @@ multi-block backup, confirm that only verified blocks are resumed, and reject a
 corrupted partial file. Hardware acceptance still requires an adapter
 implementing the actual MS45.0/MS45.1 diagnostic jobs and bench verification of
 the address map, identity mapping, resume behavior, and backup contents.
+The probe's remaining external gate is to run it against both MS45.0 and MS45.1
+hardware, compare every reported field with an independent diagnostic tool,
+and capture bridge logs showing that no memory-read or security-access job ran.
 
 ## EdiabasTest bridge
 
@@ -87,7 +99,8 @@ with a local JSON file (keep the file and any PRG assets out of Git):
 ```
 
 The `legacy-ms45` profile uses the `aif_lesen`, `hardware_referenz_lesen`,
-and `daten_referenz_lesen` identity jobs from the [original C# branch](https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/lts/MS45%20Flasher/MainWindow.xaml.cs). It maps
+`daten_referenz_lesen`, `flash_programmier_status_lesen`, and
+`DIAGNOSEPROTOKOLL_LESEN` metadata jobs from the [original C# branch](https://github.com/CharlesDerek/bmw-ms45-dme-unlock/blob/lts/MS45%20Flasher/MainWindow.xaml.cs). It maps
 hardware references `0044560` and `0044570` to MS45.0 and MS45.1, and reads
 `ROMX` or `LAR` with `speicher_lesen_ascii` in 254-byte chunks. Validate this
 mapping against the installed PRG and ECU before use. The bridge

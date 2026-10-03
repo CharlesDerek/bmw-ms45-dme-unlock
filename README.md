@@ -34,7 +34,8 @@ Implemented:
   sleeping or claiming physical-hardware coverage. See
   [bench simulator](docs/bench-simulator.md).
 * A read-only TCP job-adapter protocol with nonce-bound responses, strict
-  identity parsing, bounded reads, and a verified, resumable backup CLI. Its
+  identity parsing, a metadata-only hardware probe, bounded reads, and a
+  verified, resumable backup CLI. Its
   tests exercise wrong variants, stale responses, short reads, disconnects,
   interrupted backup recovery, and tampered progress.
 * A versioned, CC0 synthetic compatibility manifest covering multiple
@@ -129,13 +130,23 @@ Generate a security access message from known challenge data:
 cargo run -p ms45 -- security-message --user-id 01020304 --serial 05060708 --seed 090a0b0c
 ```
 
+Probe ECU metadata without reading flash or requesting security access:
+
+```bash
+cargo run -p ms45 -- probe --adapter 127.0.0.1:4581
+```
+
+The command prints `ms45.hardware-probe.v1` JSON containing the variant,
+hardware and software references, programming status, diagnostic protocol,
+and SHA-256 of the VIN. It never prints the VIN itself.
+
 Read a bounded region through an independently implemented read-only adapter:
 
 ```bash
 cargo run -p ms45 -- backup --adapter 127.0.0.1:4581 \
   --expected-variant MS45.1 --expected-hw-ref HW1 --expected-sw-ref SW1 \
   --expected-vin-sha256 SHA256_OF_APPROVED_VIN \
-  --bridge-version 1.0.0 \
+  --bridge-version 1.1.0 \
   --region external --start 0 --length 4096 --output backup.bin
 ```
 

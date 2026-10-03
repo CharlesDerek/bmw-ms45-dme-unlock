@@ -23,6 +23,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Report read-only ECU identity and status metadata.
+    Probe {
+        #[arg(long)]
+        adapter: SocketAddr,
+    },
     /// Read memory through a separately validated read-only ECU job adapter.
     Backup {
         #[arg(long)]
@@ -101,6 +106,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Probe { adapter } => {
+            let mut session = ReadOnlyAdapter::connect(adapter, backup::ADAPTER_TIMEOUT)?;
+            let report = session.probe()?;
+            let vin_hash = format!("{:x}", Sha256::digest(report.vin.as_bytes()));
+            println!(
+                "{}",
+                serde_json::json!({"schema_version":"ms45.hardware-probe.v1","variant":report.variant,"hardware_reference":report.hardware_reference,"software_reference":report.software_reference,"programming_status":report.programming_status,"diagnostic_protocol":report.diagnostic_protocol,"vin_sha256":vin_hash})
+            );
+        }
         Command::Backup {
             adapter,
             expected_variant,

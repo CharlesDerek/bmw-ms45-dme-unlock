@@ -25,6 +25,16 @@ pub struct EcuIdentity {
     pub vin: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HardwareProbe {
+    pub variant: String,
+    pub hardware_reference: String,
+    pub software_reference: String,
+    pub programming_status: String,
+    pub diagnostic_protocol: String,
+    pub vin: String,
+}
+
 pub struct EcuOperations<J> {
     jobs: J,
 }
@@ -62,6 +72,35 @@ impl<J: DiagnosticJobs> EcuOperations<J> {
             hardware_reference: fields[1].into(),
             software_reference: fields[2].into(),
             vin: fields[3].into(),
+        })
+    }
+
+    pub fn probe(&mut self) -> Result<HardwareProbe, EcuError> {
+        let bytes = self.jobs.probe()?;
+        let text = std::str::from_utf8(&bytes).map_err(|_| EcuError::Malformed)?;
+        let fields = text.split('|').collect::<Vec<_>>();
+        if fields.len() != 6
+            || fields.iter().any(|field| {
+                field.is_empty()
+                    || field.len() > 128
+                    || field.trim() != *field
+                    || !field
+                        .bytes()
+                        .all(|byte| byte.is_ascii_graphic() || byte == b' ')
+            })
+        {
+            return Err(EcuError::Malformed);
+        }
+        if !matches!(fields[0], "MS45.0" | "MS45.1") {
+            return Err(EcuError::Identity);
+        }
+        Ok(HardwareProbe {
+            variant: fields[0].into(),
+            hardware_reference: fields[1].into(),
+            software_reference: fields[2].into(),
+            programming_status: fields[3].into(),
+            diagnostic_protocol: fields[4].into(),
+            vin: fields[5].into(),
         })
     }
 
@@ -181,6 +220,7 @@ mod tests {
 
     struct Jobs {
         identity: Vec<u8>,
+        probe: Vec<u8>,
         reads: VecDeque<Vec<u8>>,
         calls: usize,
     }
@@ -188,6 +228,10 @@ mod tests {
         fn identify(&mut self) -> Result<Vec<u8>, DiagnosticError> {
             self.calls += 1;
             Ok(self.identity.clone())
+        }
+        fn probe(&mut self) -> Result<Vec<u8>, DiagnosticError> {
+            self.calls += 1;
+            Ok(self.probe.clone())
         }
         fn read_memory(
             &mut self,
@@ -204,11 +248,13 @@ mod tests {
     fn shared_operations_validate_jobs_and_ranges() {
         let jobs = Jobs {
             identity: b"MS45.1|HW1|SW1|TESTVIN".to_vec(),
+            probe: b"MS45.1|HW1|SW1|programmed|BMW-FAST|TESTVIN".to_vec(),
             reads: [vec![0x45; 4]].into(),
             calls: 0,
         };
         let mut ecu = EcuOperations::new(jobs);
         assert_eq!(ecu.identify().unwrap().variant, "MS45.1");
+        assert_eq!(ecu.probe().unwrap().diagnostic_protocol, "BMW-FAST");
         assert_eq!(
             ecu.read(MemoryRegion::ExternalFlash, 0, 4).unwrap(),
             vec![0x45; 4]
@@ -217,19 +263,21 @@ mod tests {
             ecu.read(MemoryRegion::ExternalFlash, 0, 0),
             Err(EcuError::Range)
         );
-        assert_eq!(ecu.into_inner().calls, 2);
+        assert_eq!(ecu.into_inner().calls, 3);
     }
 
     #[test]
     fn shared_operations_reject_bad_identity_and_short_result() {
         let jobs = Jobs {
             identity: b"MS44|HW1|SW1|TESTVIN".to_vec(),
+            probe: Vec::new(),
             reads: VecDeque::new(),
             calls: 0,
         };
         assert_eq!(EcuOperations::new(jobs).identify(), Err(EcuError::Identity));
         let jobs = Jobs {
             identity: Vec::new(),
+            probe: Vec::new(),
             reads: [vec![0; 3]].into(),
             calls: 0,
         };
@@ -243,6 +291,7 @@ mod tests {
     fn read_only_jobs_fail_closed_for_flash_operations() {
         let jobs = Jobs {
             identity: Vec::new(),
+            probe: Vec::new(),
             reads: VecDeque::new(),
             calls: 0,
         };

@@ -14,7 +14,7 @@ from pathlib import Path
 
 MAGIC = b"MS45R1"
 MAX_READ = 4096
-BRIDGE_VERSION = "1.0.0"
+BRIDGE_VERSION = "1.1.0"
 LABEL = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 HEX = re.compile(r"^(?:[0-9A-Fa-f]{2}(?: |$))+$")
 
@@ -43,6 +43,11 @@ def load_config(path):
         fields = config.get("identity_results")
         if not isinstance(fields, dict) or set(fields) != {"variant", "hardware_reference", "software_reference", "vin"} or not all(isinstance(v, str) and LABEL.fullmatch(v) for v in fields.values()):
             raise ValueError("identity_results must name four exact job results")
+        probe = config.get("probe")
+        if probe is not None:
+            required_probe = {"programming_status_job", "programming_status_result", "diagnostic_protocol_job", "diagnostic_protocol_result"}
+            if not isinstance(probe, dict) or set(probe) != required_probe or not all(isinstance(v, str) and LABEL.fullmatch(v) for v in probe.values()):
+                raise ValueError("probe must name the status and protocol jobs and results")
     template = config.get("read_args")
     if not isinstance(template, str) or not re.fullmatch(r"[A-Za-z0-9_;{},]+", template) or "{start}" not in template or "{length}" not in template or "{region}" not in template:
         raise ValueError("read_args must contain start, length, and region placeholders")
@@ -110,22 +115,41 @@ def run_job(config, job, arguments, requested):
     return parse_results(result.stdout)
 
 
+def identify(config):
+    if config.get("profile") == "legacy-ms45":
+        vin = run_job(config, "aif_lesen", "", "AIF_FG_NR;JOB_STATUS")["AIF_FG_NR"]
+        hw = run_job(config, "hardware_referenz_lesen", "", "HARDWARE_REFERENZ;JOB_STATUS")["HARDWARE_REFERENZ"]
+        sw = run_job(config, "daten_referenz_lesen", "", "DATEN_REFERENZ;JOB_STATUS")["DATEN_REFERENZ"]
+        variant = {"0044560": "MS45.0", "0044570": "MS45.1"}.get(hw)
+        if variant is None:
+            raise ValueError("unsupported hardware reference")
+        values = [variant, hw, sw, vin]
+    else:
+        fields = config["identity_results"]
+        results = run_job(config, config["identify_job"], "", ";".join(fields.values()) + ";JOB_STATUS")
+        values = [results[fields[key]] for key in ("variant", "hardware_reference", "software_reference", "vin")]
+    if values[0] not in ("MS45.0", "MS45.1") or not all(LABEL.fullmatch(value) for value in values):
+        raise ValueError("invalid ECU identity")
+    return values
+
+
 def execute(config, operation, region, start, length):
-    if operation == 1 and region == 0 and start == 0 and length == 0:
+    if operation in (1, 3) and region == 0 and start == 0 and length == 0:
+        variant, hw, sw, vin = identify(config)
+        if operation == 1:
+            return 0, "|".join((variant, hw, sw, vin)).encode("ascii")
         if config.get("profile") == "legacy-ms45":
-            vin = run_job(config, "aif_lesen", "", "AIF_FG_NR;JOB_STATUS")["AIF_FG_NR"]
-            hw = run_job(config, "hardware_referenz_lesen", "", "HARDWARE_REFERENZ;JOB_STATUS")["HARDWARE_REFERENZ"]
-            sw = run_job(config, "daten_referenz_lesen", "", "DATEN_REFERENZ;JOB_STATUS")["DATEN_REFERENZ"]
-            variant = {"0044560": "MS45.0", "0044570": "MS45.1"}.get(hw)
-            if variant is None:
-                raise ValueError("unsupported hardware reference")
-            values = [variant, hw, sw, vin]
+            programming_status = run_job(config, "flash_programmier_status_lesen", "", "FLASH_PROGRAMMIER_STATUS_TEXT;JOB_STATUS")["FLASH_PROGRAMMIER_STATUS_TEXT"]
+            diagnostic_protocol = run_job(config, "DIAGNOSEPROTOKOLL_LESEN", "", "DIAG_PROT_IST;JOB_STATUS")["DIAG_PROT_IST"]
         else:
-            fields = config["identity_results"]
-            results = run_job(config, config["identify_job"], "", ";".join(fields.values()) + ";JOB_STATUS")
-            values = [results[fields[key]] for key in ("variant", "hardware_reference", "software_reference", "vin")]
-        if values[0] not in ("MS45.0", "MS45.1") or not all(LABEL.fullmatch(value) for value in values):
-            raise ValueError("invalid ECU identity")
+            probe = config.get("probe")
+            if probe is None:
+                raise ValueError("custom profile does not configure probe jobs")
+            programming_status = run_job(config, probe["programming_status_job"], "", probe["programming_status_result"] + ";JOB_STATUS")[probe["programming_status_result"]]
+            diagnostic_protocol = run_job(config, probe["diagnostic_protocol_job"], "", probe["diagnostic_protocol_result"] + ";JOB_STATUS")[probe["diagnostic_protocol_result"]]
+        values = (variant, hw, sw, programming_status, diagnostic_protocol, vin)
+        if not all(isinstance(value, str) and value == value.strip() and 1 <= len(value) <= 128 and "|" not in value and value.isascii() and value.isprintable() for value in values):
+            raise ValueError("invalid ECU probe result")
         return 0, "|".join(values).encode("ascii")
     if operation != 2:
         return 2, b""
