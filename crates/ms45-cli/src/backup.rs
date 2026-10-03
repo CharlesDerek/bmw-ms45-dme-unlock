@@ -110,15 +110,29 @@ pub(crate) fn run(
     let progress_path = sidecar(request.output, ".progress.json");
     let manifest_path = manifest_path(request.output);
     let mut progress = load_progress(&progress_path, identity, request)?;
-    if !partial_path.exists()
-        && request.output.exists()
-        && total_completed(&progress)? == request.length
-    {
+    let completed = total_completed(&progress)?;
+    if manifest_path.exists() {
+        bail!(
+            "refusing to overwrite existing backup manifest {}",
+            manifest_path.display()
+        );
+    }
+    if request.output.exists() {
+        if completed != request.length {
+            bail!(
+                "refusing to overwrite existing backup output {}",
+                request.output.display()
+            );
+        }
         if usize::try_from(std::fs::metadata(request.output)?.len())? != request.length {
             bail!("finalized backup length does not match verified progress");
         }
         verify_partial(request.output, &progress)
             .context("finalized backup does not match verified progress")?;
+        if partial_path.exists() {
+            verify_partial(&partial_path, &progress)
+                .context("recovery partial does not match verified progress")?;
+        }
         let digest = digest_file(request.output)?;
         verify_second_pass(session, request, &digest)?;
         write_manifest(
@@ -128,9 +142,14 @@ pub(crate) fn run(
             &progress.started_at,
             &digest,
         )?;
-        std::fs::remove_file(&progress_path)?;
-        sync_parent(&progress_path)?;
+        cleanup_recovery_files(&partial_path, &progress_path)?;
         return Ok((digest, request.length));
+    }
+    if partial_path.exists() && !progress_path.exists() {
+        bail!(
+            "refusing to overwrite orphaned backup partial {}",
+            partial_path.display()
+        );
     }
     let completed = verify_partial(&partial_path, &progress)?;
     let mut partial = OpenOptions::new()
@@ -178,7 +197,7 @@ pub(crate) fn run(
     drop(partial);
     let digest = digest_file(&partial_path)?;
     verify_second_pass(session, request, &digest)?;
-    std::fs::rename(&partial_path, request.output).with_context(|| {
+    std::fs::hard_link(&partial_path, request.output).with_context(|| {
         format!(
             "failed to finalize {} as {}",
             partial_path.display(),
@@ -193,9 +212,16 @@ pub(crate) fn run(
         &progress.started_at,
         &digest,
     )?;
-    std::fs::remove_file(&progress_path)?;
-    sync_parent(&progress_path)?;
+    cleanup_recovery_files(&partial_path, &progress_path)?;
     Ok((digest, completed))
+}
+
+fn cleanup_recovery_files(partial_path: &Path, progress_path: &Path) -> Result<()> {
+    if partial_path.exists() {
+        std::fs::remove_file(partial_path)?;
+    }
+    std::fs::remove_file(progress_path)?;
+    sync_parent(progress_path)
 }
 
 fn verify_second_pass(
@@ -312,16 +338,40 @@ fn total_completed(progress: &Progress) -> Result<usize> {
 }
 
 fn persist_progress(path: &Path, progress: &Progress) -> Result<()> {
-    persist_json(path, progress)
+    persist_json(path, progress, true)
 }
 
-fn persist_json(path: &Path, value: &impl Serialize) -> Result<()> {
+fn persist_json(path: &Path, value: &impl Serialize, replace: bool) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     serde_json::to_writer_pretty(&mut temporary, value)?;
     temporary.write_all(b"\n")?;
     temporary.as_file().sync_all()?;
-    temporary.persist(path).map_err(|error| error.error)?;
+    let persisted = if replace {
+        temporary.persist(path)
+    } else {
+        temporary.persist_noclobber(path)
+    };
+    if let Err(error) = persisted {
+        let persistence_error = error.error;
+        let recovery = error.file.keep();
+        return match recovery {
+            Ok((_file, recovery_path)) => Err(persistence_error).with_context(|| {
+                format!(
+                    "failed to persist {}; recovery data retained at {}",
+                    path.display(),
+                    recovery_path.display()
+                )
+            }),
+            Err(keep_error) => Err(persistence_error).with_context(|| {
+                format!(
+                    "failed to persist {} and retain recovery data: {}",
+                    path.display(),
+                    keep_error.error
+                )
+            }),
+        };
+    }
     sync_parent(path)
 }
 
@@ -375,7 +425,7 @@ fn write_manifest(
             passes: READ_PASSES,
         },
     };
-    persist_json(path, &manifest)
+    persist_json(path, &manifest, false)
         .with_context(|| format!("failed to write backup manifest {}", path.display()))
 }
 

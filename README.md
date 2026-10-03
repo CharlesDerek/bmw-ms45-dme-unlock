@@ -185,7 +185,11 @@ Resume progress is stored beside the requested output as `<output>.partial` and
 command. The progress file binds block hashes to the exact ECU identity,
 bridge version, region, start, and length. Do not edit it. On completion,
 `<output>.manifest.json` is written atomically beside the backup using the
-versioned `ms45.backup-manifest.v1` format. It records hashed ECU identity
+versioned `ms45.backup-manifest.v1` format. Existing output and manifest files
+are never overwritten. The final directory entries are synced, and the verified
+partial and progress files remain available until both the backup and manifest
+are durable, so an identical command can finish recovery after a persistence
+failure. The manifest records hashed ECU identity
 fields, the address range, UTC start/completion timestamps, binary length and
 SHA-256, bridge and CLI versions, and effective read parameters including the
 two-pass count. Supply the

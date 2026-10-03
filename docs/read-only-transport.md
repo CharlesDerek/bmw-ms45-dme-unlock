@@ -55,15 +55,23 @@ allow the file to be finalized, the checkpoint to be removed, and a `verified`
 receipt to be printed. A failed or mismatched verification pass leaves the
 partial file and checkpoint available for a retry. The receipt's
 `resumed_bytes` reports how much previously verified data was reused. The
-command cannot issue write operations.
+command cannot issue write operations. Finalization creates the requested
+output without replacing an existing file, syncs its parent directory, and
+keeps the verified partial and checkpoint until the permanent manifest is also
+durable. If final persistence fails, remove only the reported obstruction and
+repeat the identical command; a fully verified recovery state is recognized,
+while an unrelated existing output, manifest, or orphaned partial is rejected.
+Serialized JSON that cannot be moved into its final path is retained at the
+recovery path printed in the error.
 
 Every successful backup also has a permanent `<output>.manifest.json` sidecar.
 Its `ms45.backup-manifest.v1` schema records SHA-256 hashes of each ECU identity
 field (never the VIN itself), the half-open address range, UTC start and
 completion timestamps, the binary's name, size and SHA-256, the pinned bridge
 version, CLI version, protocol, block size, timeout, and two-pass count. Both the
-binary and manifest are synced and the manifest is atomically replaced. Keep them
-together; verify the binary against `binary.sha256` before use. The required
+binary and manifest are synced, their parent directory entries are synced, and
+neither permanent file is replaced. Keep them together; verify the binary
+against `binary.sha256` before use. The required
 `--bridge-version` value is operator-pinned because MS45R1 deliberately does
 not expose host metadata; obtain it from the deployed bridge's `--version`.
 

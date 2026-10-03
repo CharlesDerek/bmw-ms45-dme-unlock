@@ -488,6 +488,96 @@ fn backup_pins_identity_and_verifies_saved_bytes() {
 }
 
 #[test]
+fn backup_refuses_to_overwrite_an_existing_output() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 22];
+        stream.read_exact(&mut request).unwrap();
+        respond(&mut stream, &request, b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN");
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_millis(200)))
+            .unwrap();
+        assert_eq!(stream.read(&mut [0u8; 1]).unwrap_or(0), 0);
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("backup.bin");
+    std::fs::write(&output, b"keep this backup").unwrap();
+
+    backup_command(address, &output, "16", "1.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "refusing to overwrite existing backup output",
+        ));
+
+    server.join().unwrap();
+    assert_eq!(std::fs::read(&output).unwrap(), b"keep this backup");
+    assert!(!output.with_file_name("backup.bin.partial").exists());
+}
+
+#[test]
+fn backup_retains_verified_files_when_manifest_persistence_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("backup.bin");
+    let manifest = output.with_file_name("backup.bin.manifest.json");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let blocked_manifest = manifest.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        for (index, payload) in [
+            b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(),
+            &[0x45; 16],
+            &[0x45; 16],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut request = [0u8; 22];
+            stream.read_exact(&mut request).unwrap();
+            if index == 2 {
+                std::fs::create_dir(&blocked_manifest).unwrap();
+            }
+            respond(&mut stream, &request, payload);
+        }
+    });
+
+    backup_command(address, &output, "16", "1.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("recovery data retained at"));
+    server.join().unwrap();
+
+    let partial = output.with_file_name("backup.bin.partial");
+    let progress = output.with_file_name("backup.bin.progress.json");
+    assert_eq!(std::fs::read(&output).unwrap(), vec![0x45; 16]);
+    assert_eq!(std::fs::read(&partial).unwrap(), vec![0x45; 16]);
+    assert!(progress.exists());
+
+    std::fs::remove_dir(&manifest).unwrap();
+    let retry_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let retry_address = retry_listener.local_addr().unwrap();
+    let retry_server = std::thread::spawn(move || {
+        let (mut stream, _) = retry_listener.accept().unwrap();
+        for payload in [b"MS45.1|HW1|SW1|1|BMW-FAST|TESTVIN".as_slice(), &[0x45; 16]] {
+            let mut request = [0u8; 22];
+            stream.read_exact(&mut request).unwrap();
+            respond(&mut stream, &request, payload);
+        }
+    });
+    backup_command(retry_address, &output, "16", "1.0.0")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"resumed_bytes\":16"));
+    retry_server.join().unwrap();
+    assert!(!partial.exists());
+    assert!(!progress.exists());
+    assert!(manifest.is_file());
+}
+
+#[test]
 fn backup_rejects_unsafe_programming_state_before_reading_memory() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
