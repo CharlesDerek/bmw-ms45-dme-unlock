@@ -42,3 +42,27 @@ backend must also hash the supplied payload files and compare them to the plan,
 then pin the connected ECU identity before security access. Physical-hardware
 acceptance of that path remains outstanding; this command neither accesses nor
 claims validation on an ECU.
+
+## Inspect erase and write ranges
+
+Verify and expand the plan into the exact erase calls and block-write calls an
+executor would make:
+
+```bash
+cargo run -p ms45 -- inspect-flash-plan \
+  --input approved-flash-plan.json \
+  --expected-public-key APPROVED_ED25519_PUBLIC_KEY
+```
+
+The versioned JSON report contains the approved identity, signature status,
+signature target, block size, total byte count, one range per segment erase,
+and one range per block write (including a shorter final block). Ranges use
+`start` inclusive and `end_exclusive` exclusive addresses. Inspection fails
+closed if the artifact, signer, signature, or any range invariant is invalid.
+
+Both the native desktop GUI and local web GUI provide the same signed-plan
+inspection. Select the JSON artifact, paste the independently approved public
+key, and choose **Verify and Inspect**. Neither inspection path connects to an
+ECU or executes an operation. Physical-hardware confirmation that a future
+write backend issues precisely these ranges remains an external acceptance
+step.

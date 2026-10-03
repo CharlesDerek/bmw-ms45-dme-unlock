@@ -31,6 +31,8 @@ struct Ms45App {
     external_output: Option<PathBuf>,
     mpc_output: Option<PathBuf>,
     hw_ref: String,
+    flash_plan: Option<PathBuf>,
+    flash_plan_public_key: String,
     status: String,
 }
 
@@ -48,6 +50,8 @@ impl eframe::App for Ms45App {
                     self.program_panel(&mut columns[1]);
                 });
 
+                ui.add_space(14.0);
+                self.flash_plan_panel(ui);
                 ui.add_space(14.0);
                 ui.separator();
                 ui.add_space(10.0);
@@ -121,6 +125,34 @@ impl Ms45App {
                 }
             });
         });
+    }
+
+    fn flash_plan_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.heading("Flash Plan Inspection");
+            ui.label("Verify a signed plan and review every erase and block-write range before execution.");
+            if path_row(ui, "Signed plan", &self.flash_plan) {
+                self.flash_plan = rfd::FileDialog::new()
+                    .add_filter("Flash plan", &["json"])
+                    .pick_file();
+            }
+            ui.horizontal(|ui| {
+                ui.label("Approved public key");
+                ui.text_edit_singleline(&mut self.flash_plan_public_key);
+            });
+            if ui.button("Verify and Inspect").clicked() {
+                self.status = self.inspect_flash_plan().unwrap_or_else(|err| err.to_string());
+            }
+        });
+    }
+
+    fn inspect_flash_plan(&self) -> Result<String> {
+        let path = required(&self.flash_plan, "select a signed flash plan")?;
+        let artifact =
+            ms45::flash_plan_artifact::read_and_verify(path, self.flash_plan_public_key.trim())?;
+        Ok(ms45::flash_plan_artifact::format_inspection(
+            &ms45::flash_plan_artifact::inspect(&artifact),
+        ))
     }
 
     fn validate_tune(&self) -> Result<String> {

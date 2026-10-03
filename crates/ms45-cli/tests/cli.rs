@@ -240,6 +240,98 @@ fn creates_and_verifies_a_signed_flash_plan() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"status\":\"verified\""));
+
+    let inspection = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "inspect-flash-plan",
+            "--input",
+            plan.to_str().unwrap(),
+            "--expected-public-key",
+            public_key,
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        inspection.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspection.stderr)
+    );
+    let inspection: serde_json::Value = serde_json::from_slice(&inspection.stdout).unwrap();
+    assert_eq!(
+        inspection["schema_version"],
+        "ms45.flash-plan-inspection.v1"
+    );
+    assert_eq!(inspection["signature_status"], "verified");
+    assert_eq!(inspection["total_bytes"], 4);
+    assert_eq!(inspection["erase_ranges"][0]["start"], 256);
+    assert_eq!(inspection["erase_ranges"][0]["end_exclusive"], 260);
+    assert_eq!(inspection["write_ranges"][0]["start"], 256);
+    assert_eq!(inspection["write_ranges"][0]["end_exclusive"], 260);
+}
+
+#[test]
+fn inspection_lists_each_exact_block_write_range() {
+    let dir = tempfile::tempdir().unwrap();
+    let payload = dir.path().join("payload.bin");
+    let key = dir.path().join("signing-key.hex");
+    let plan = dir.path().join("flash-plan.json");
+    std::fs::write(&payload, [0x45; 10]).unwrap();
+    std::fs::write(
+        &key,
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    )
+    .unwrap();
+    let segment = format!("mpc:0x20:{}", payload.display());
+    let create = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "create-flash-plan",
+            "--expected-variant",
+            "MS45.0",
+            "--expected-hw-ref",
+            "HW1",
+            "--expected-sw-ref",
+            "SW1",
+            "--expected-vin-sha256",
+            &"ab".repeat(32),
+            "--segment",
+            &segment,
+            "--block-size",
+            "4",
+            "--signature-target",
+            "program",
+            "--signing-key",
+            key.to_str().unwrap(),
+            "--output",
+            plan.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(create.status.success());
+    let created: serde_json::Value = serde_json::from_slice(&create.stdout).unwrap();
+    let public_key = created["public_key"].as_str().unwrap();
+    let output = Command::cargo_bin("ms45")
+        .unwrap()
+        .args([
+            "inspect-flash-plan",
+            "--input",
+            plan.to_str().unwrap(),
+            "--expected-public-key",
+            public_key,
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["erase_ranges"][0]["length"], 10);
+    assert_eq!(report["write_ranges"].as_array().unwrap().len(), 3);
+    assert_eq!(report["write_ranges"][0]["start"], 0x20);
+    assert_eq!(report["write_ranges"][0]["end_exclusive"], 0x24);
+    assert_eq!(report["write_ranges"][1]["start"], 0x24);
+    assert_eq!(report["write_ranges"][1]["end_exclusive"], 0x28);
+    assert_eq!(report["write_ranges"][2]["start"], 0x28);
+    assert_eq!(report["write_ranges"][2]["end_exclusive"], 0x2a);
 }
 
 #[test]

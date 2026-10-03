@@ -12,6 +12,7 @@ crc32fast = "1"
 eframe = "0.33"
 egui = "0.33"
 ms45-core = { path = "../ms45-core" }
+ms45 = { path = "../ms45-cli" }
 rfd = "0.15"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

@@ -2356,6 +2356,7 @@ dependencies = [
  "crc32fast",
  "eframe",
  "egui",
+ "ms45",
  "ms45-core",
  "rfd",
  "serde_json",

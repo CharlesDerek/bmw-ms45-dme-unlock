@@ -12,7 +12,7 @@ use ms45_core::{
 use sha2::{Digest, Sha256};
 
 mod backup;
-mod flash_plan_artifact;
+use ms45::flash_plan_artifact;
 
 #[derive(Debug, Parser)]
 #[command(name = "ms45", version)]
@@ -49,6 +49,14 @@ enum Command {
     },
     /// Verify an offline signed flash approval plan.
     VerifyFlashPlan {
+        #[arg(long)]
+        input: PathBuf,
+        /// Approved Ed25519 public key encoded as 64 hex digits.
+        #[arg(long)]
+        expected_public_key: String,
+    },
+    /// Verify and display the exact erase and block-write ranges in a flash plan.
+    InspectFlashPlan {
         #[arg(long)]
         input: PathBuf,
         /// Approved Ed25519 public key encoded as 64 hex digits.
@@ -182,6 +190,16 @@ fn main() -> Result<()> {
             println!(
                 "{}",
                 serde_json::json!({"schema_version":"ms45.flash-plan-verified.v1","status":"verified","input":input,"segments":artifact.plan.segments.len(),"public_key":artifact.signing.public_key})
+            );
+        }
+        Command::InspectFlashPlan {
+            input,
+            expected_public_key,
+        } => {
+            let artifact = flash_plan_artifact::read_and_verify(&input, &expected_public_key)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&flash_plan_artifact::inspect(&artifact))?
             );
         }
         Command::Probe { adapter } => {

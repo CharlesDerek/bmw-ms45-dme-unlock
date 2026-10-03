@@ -47,6 +47,8 @@ Implemented:
   identity to payload hashes, address ranges, block size, signature target,
   and the exact intended operation sequence. See
   [signed flash plans](docs/signed-flash-plans.md).
+* CLI, native GUI, and web GUI inspection of verified flash plans, including
+  exact erase ranges and every block-write range before execution.
 * A loopback-only read-only EdiabasTest job bridge that can serve the backup
   CLI after its PRG job/result mapping is independently validated on hardware.
 
@@ -128,6 +130,17 @@ Validate metadata:
 cargo run -p ms45 -- validate --tune tune.bin --sw-ref 7561520
 cargo run -p ms45 -- validate --external full_flash.bin --mpc mpc.bin --hw-ref 0044570
 ```
+
+Inspect the exact erase and write ranges in a signed flash plan:
+
+```bash
+cargo run -p ms45 -- inspect-flash-plan \
+  --input approved-flash-plan.json \
+  --expected-public-key APPROVED_ED25519_PUBLIC_KEY
+```
+
+The command verifies the signer and signature before reporting any ranges. The
+desktop and web GUIs expose the same verification and inspection workflow.
 
 Generate a security access message from known challenge data:
 

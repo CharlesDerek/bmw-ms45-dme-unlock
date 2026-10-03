@@ -18,7 +18,7 @@ const OPERATIONS: [&str; 7] = [
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct SignedFlashPlan {
+pub struct SignedFlashPlan {
     pub schema_version: String,
     pub plan: FlashPlanDocument,
     pub signing: Signing,
@@ -26,7 +26,7 @@ pub(crate) struct SignedFlashPlan {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct FlashPlanDocument {
+pub struct FlashPlanDocument {
     pub approved_identity: ApprovedIdentity,
     pub block_size: usize,
     pub segments: Vec<Segment>,
@@ -34,9 +34,9 @@ pub(crate) struct FlashPlanDocument {
     pub signature_target: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ApprovedIdentity {
+pub struct ApprovedIdentity {
     pub variant: String,
     pub hardware_reference: String,
     pub software_reference: String,
@@ -46,7 +46,7 @@ pub(crate) struct ApprovedIdentity {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Segment {
+pub struct Segment {
     pub region: String,
     pub start: u32,
     pub end_exclusive: u32,
@@ -56,13 +56,13 @@ pub(crate) struct Segment {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Signing {
+pub struct Signing {
     pub algorithm: String,
     pub public_key: String,
     pub signature: String,
 }
 
-pub(crate) struct CreateRequest<'a> {
+pub struct CreateRequest<'a> {
     pub variant: &'a str,
     pub hardware_reference: &'a str,
     pub software_reference: &'a str,
@@ -73,7 +73,7 @@ pub(crate) struct CreateRequest<'a> {
     pub signing_key: &'a Path,
 }
 
-pub(crate) fn create(request: CreateRequest<'_>) -> Result<SignedFlashPlan> {
+pub fn create(request: CreateRequest<'_>) -> Result<SignedFlashPlan> {
     validate_identity(
         request.variant,
         request.hardware_reference,
@@ -116,16 +116,21 @@ pub(crate) fn create(request: CreateRequest<'_>) -> Result<SignedFlashPlan> {
     })
 }
 
-pub(crate) fn write(path: &Path, artifact: &SignedFlashPlan) -> Result<()> {
+pub fn write(path: &Path, artifact: &SignedFlashPlan) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(artifact)?;
     std::fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))
 }
 
-pub(crate) fn read_and_verify(path: &Path, expected_public_key: &str) -> Result<SignedFlashPlan> {
+pub fn read_and_verify(path: &Path, expected_public_key: &str) -> Result<SignedFlashPlan> {
     let bytes =
         std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let artifact: SignedFlashPlan = serde_json::from_slice(&bytes)
-        .with_context(|| format!("invalid flash plan artifact {}", path.display()))?;
+    read_and_verify_bytes(&bytes, expected_public_key)
+        .with_context(|| format!("invalid flash plan artifact {}", path.display()))
+}
+
+pub fn read_and_verify_bytes(bytes: &[u8], expected_public_key: &str) -> Result<SignedFlashPlan> {
+    let artifact: SignedFlashPlan =
+        serde_json::from_slice(bytes).context("invalid flash plan JSON")?;
     validate_artifact(&artifact)?;
     if artifact.signing.public_key != expected_public_key.to_ascii_lowercase() {
         bail!("flash plan signer does not match the approved public key");
@@ -141,6 +146,101 @@ pub(crate) fn read_and_verify(path: &Path, expected_public_key: &str) -> Result<
     key.verify(&signing_bytes(&artifact.plan)?, &signature)
         .context("flash plan signature verification failed")?;
     Ok(artifact)
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct FlashPlanInspection<'a> {
+    pub schema_version: &'static str,
+    pub signature_status: &'static str,
+    pub approved_identity: &'a ApprovedIdentity,
+    pub signature_target: &'a str,
+    pub block_size: usize,
+    pub erase_ranges: Vec<InspectionRange<'a>>,
+    pub write_ranges: Vec<InspectionRange<'a>>,
+    pub total_bytes: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct InspectionRange<'a> {
+    pub region: &'a str,
+    pub start: u32,
+    pub end_exclusive: u32,
+    pub length: usize,
+}
+
+pub fn inspect(artifact: &SignedFlashPlan) -> FlashPlanInspection<'_> {
+    let erase_ranges = artifact
+        .plan
+        .segments
+        .iter()
+        .map(|segment| InspectionRange {
+            region: &segment.region,
+            start: segment.start,
+            end_exclusive: segment.end_exclusive,
+            length: segment.length,
+        })
+        .collect();
+    let write_ranges = artifact
+        .plan
+        .segments
+        .iter()
+        .flat_map(|segment| {
+            (0..segment.length)
+                .step_by(artifact.plan.block_size)
+                .map(move |offset| {
+                    let length = artifact.plan.block_size.min(segment.length - offset);
+                    let start = segment.start + offset as u32;
+                    InspectionRange {
+                        region: &segment.region,
+                        start,
+                        end_exclusive: start + length as u32,
+                        length,
+                    }
+                })
+        })
+        .collect();
+    FlashPlanInspection {
+        schema_version: "ms45.flash-plan-inspection.v1",
+        signature_status: "verified",
+        approved_identity: &artifact.plan.approved_identity,
+        signature_target: &artifact.plan.signature_target,
+        block_size: artifact.plan.block_size,
+        erase_ranges,
+        write_ranges,
+        total_bytes: artifact
+            .plan
+            .segments
+            .iter()
+            .map(|segment| segment.length)
+            .sum(),
+    }
+}
+
+pub fn format_inspection(inspection: &FlashPlanInspection<'_>) -> String {
+    let identity = inspection.approved_identity;
+    let mut output = format!(
+        "Signature: verified\nECU: {} / HW {} / SW {}\nSignature target: {}\nBlock size: {} bytes\nTotal write: {} bytes\nErase ranges:\n",
+        identity.variant,
+        identity.hardware_reference,
+        identity.software_reference,
+        inspection.signature_target,
+        inspection.block_size,
+        inspection.total_bytes
+    );
+    for range in &inspection.erase_ranges {
+        output.push_str(&format!(
+            "  {} 0x{:08x}..0x{:08x} ({} bytes)\n",
+            range.region, range.start, range.end_exclusive, range.length
+        ));
+    }
+    output.push_str("Write ranges:\n");
+    for range in &inspection.write_ranges {
+        output.push_str(&format!(
+            "  {} 0x{:08x}..0x{:08x} ({} bytes)\n",
+            range.region, range.start, range.end_exclusive, range.length
+        ));
+    }
+    output
 }
 
 fn validate_artifact(artifact: &SignedFlashPlan) -> Result<()> {

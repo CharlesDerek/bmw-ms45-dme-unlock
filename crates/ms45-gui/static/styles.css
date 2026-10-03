@@ -131,6 +131,14 @@ button:disabled {
   margin-top: 16px;
 }
 
+.flash-plan-panel {
+  margin-top: 16px;
+}
+
+.flash-plan-panel p {
+  margin-bottom: 14px;
+}
+
 pre {
   margin: 0;
   min-height: 76px;
@@ -158,4 +166,3 @@ pre {
     grid-template-columns: 1fr;
   }
 }
-

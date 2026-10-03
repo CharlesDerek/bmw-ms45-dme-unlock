@@ -54,6 +54,22 @@
         </form>
       </section>
 
+      <form id="flash-plan-form" class="panel flash-plan-panel">
+        <h2>Flash Plan Inspection</h2>
+        <p>Verify a signed plan and review every exact erase and block-write range before execution.</p>
+        <label>
+          Signed flash plan
+          <input name="plan" type="file" accept="application/json,.json" required />
+        </label>
+        <label>
+          Approved Ed25519 public key
+          <input name="expected_public_key" type="text" minlength="64" maxlength="64" required />
+        </label>
+        <div class="actions">
+          <button type="submit">Verify and inspect</button>
+        </div>
+      </form>
+
       <section class="status-panel">
         <h2>Status</h2>
         <pre id="status">Ready</pre>
@@ -62,4 +78,3 @@
     <script src="/app.js"></script>
   </body>
 </html>
-

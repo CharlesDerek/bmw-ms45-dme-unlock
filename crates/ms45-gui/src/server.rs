@@ -28,6 +28,7 @@ pub async fn run(addr: SocketAddr) -> Result<()> {
         .route("/api/prepare-tune", post(prepare_tune_handler))
         .route("/api/prepare-program", post(prepare_program_handler))
         .route("/api/validate", post(validate_handler))
+        .route("/api/inspect-flash-plan", post(inspect_flash_plan_handler))
         .layer(CorsLayer::permissive());
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -117,6 +118,22 @@ async fn validate_handler(multipart: Multipart) -> Response {
         Ok(checks)
     }) {
         Ok(checks) => Json(json!({ "checks": checks })).into_response(),
+        Err(err) => api_error(StatusCode::BAD_REQUEST, err),
+    }
+}
+
+async fn inspect_flash_plan_handler(multipart: Multipart) -> Response {
+    match read_multipart(multipart).await.and_then(|parts| {
+        let artifact = ms45::flash_plan_artifact::read_and_verify_bytes(
+            parts.file("plan")?,
+            parts
+                .optional_text("expected_public_key")
+                .ok_or_else(|| anyhow::anyhow!("missing expected public key"))?
+                .trim(),
+        )?;
+        serde_json::to_value(ms45::flash_plan_artifact::inspect(&artifact)).map_err(Into::into)
+    }) {
+        Ok(inspection) => Json(inspection).into_response(),
         Err(err) => api_error(StatusCode::BAD_REQUEST, err),
     }
 }
